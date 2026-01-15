@@ -20,10 +20,10 @@
     <link href="https://fonts.googleapis.com/icon?family=Material+Icons+Round" rel="stylesheet">
     
     <style>
-        body { font-family: 'Inter', sans-serif; background-color: #f3f4f6; }
+        body { font-family: 'Inter', sans-serif; background-color: #fafafa; }
         .scrollbar-hide::-webkit-scrollbar { display: none; }
         .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
-        .glass-effect { background: rgba(255, 255, 255, 0.95); backdrop-filter: blur(10px); }
+        .blue-tick { color: #3b82f6; }
     </style>
 </head>
 <body class="text-slate-900 h-screen overflow-hidden">
@@ -74,7 +74,7 @@
         const db = getFirestore(app);
         const { useState, useEffect, useRef } = React;
 
-        // --- UTILS: TIME FORMATTER (IST) ---
+        // --- UTILS ---
         const formatTimeIST = (timestamp) => {
             if (!timestamp) return '';
             const date = new Date(timestamp.seconds * 1000);
@@ -86,16 +86,21 @@
             });
         };
 
+        const formatDateIST = (timestamp) => {
+            if (!timestamp) return 'Recently';
+            const date = new Date(timestamp.seconds * 1000);
+            return date.toLocaleDateString('en-IN', {
+                timeZone: 'Asia/Kolkata',
+                day: 'numeric', month: 'long', year: 'numeric'
+            });
+        };
+
         const formatLastSeen = (timestamp) => {
             if (!timestamp) return 'Offline';
             const date = new Date(timestamp.seconds * 1000);
             const now = new Date();
             const diff = now - date;
-            
-            // If less than 2 minutes ago
             if (diff < 120000) return 'Online';
-
-            // Show date and time
             return date.toLocaleString('en-IN', {
                 timeZone: 'Asia/Kolkata',
                 day: 'numeric', month: 'short',
@@ -109,8 +114,8 @@
         function Navbar({ user, onLogout, setView }) {
             return (
                 <nav className="bg-white border-b border-slate-200 h-16 flex items-center justify-between px-4 sticky top-0 z-50">
-                    <div className="flex items-center gap-2 font-bold text-xl text-indigo-600 cursor-pointer" onClick={() => setView('friends')}>
-                        <span className="material-icons-round">chat_bubble</span> Indiagram
+                    <div className="flex items-center gap-2 font-bold text-2xl text-transparent bg-clip-text bg-gradient-to-r from-purple-600 to-orange-500 cursor-pointer" style={{fontFamily: 'cursive'}} onClick={() => setView('friends')}>
+                        Indiagram
                     </div>
                     {user && (
                         <div className="flex items-center gap-3">
@@ -120,7 +125,6 @@
                                     className="w-8 h-8 rounded-full border border-slate-300 object-cover" 
                                     alt="Profile"
                                 />
-                                <span className="text-sm font-medium hidden md:block">{user.displayName?.split(' ')[0]}</span>
                             </button>
                         </div>
                     )}
@@ -135,6 +139,7 @@
             const [password, setPassword] = useState('');
             const [name, setName] = useState('');
             const [username, setUsername] = useState('');
+            const [country, setCountry] = useState('India');
             const [error, setError] = useState('');
             const [loading, setLoading] = useState(false);
 
@@ -147,7 +152,7 @@
                         await signInWithEmailAndPassword(auth, email, password);
                     } else {
                         if (!username) throw new Error("Username is required");
-                        // Check username availability first
+                        // Check username availability
                         const q = query(collection(db, "users"), where("username", "==", username.toLowerCase()));
                         const snap = await getDocs(q);
                         if(!snap.empty) throw new Error("Username already taken!");
@@ -160,7 +165,10 @@
                             name: name,
                             username: username.toLowerCase(),
                             email: email,
+                            country: country,
                             photoURL: "",
+                            isVerified: false,
+                            isBanned: false,
                             lastSeen: serverTimestamp(),
                             createdAt: serverTimestamp()
                         });
@@ -173,54 +181,132 @@
             };
 
             return (
-                <div className="min-h-screen flex items-center justify-center p-4 bg-gradient-to-br from-indigo-50 to-blue-100">
-                    <div className="bg-white p-8 rounded-2xl shadow-xl w-full max-w-md">
+                <div className="min-h-screen flex items-center justify-center p-4 bg-gradient-to-br from-purple-50 to-orange-50">
+                    <div className="bg-white p-8 rounded-2xl shadow-xl w-full max-w-md border border-slate-100">
                         <div className="text-center mb-8">
-                            <div className="w-16 h-16 bg-indigo-100 rounded-full flex items-center justify-center mx-auto mb-4 text-indigo-600">
-                                <span className="material-icons-round text-3xl">person</span>
-                            </div>
-                            <h2 className="text-2xl font-bold text-slate-800">{isLogin ? 'Welcome Back' : 'Create Account'}</h2>
+                            <h2 className="text-4xl font-bold mb-2 text-transparent bg-clip-text bg-gradient-to-r from-purple-600 to-orange-500" style={{fontFamily: 'cursive'}}>Indiagram</h2>
+                            <p className="text-slate-500 font-medium">{isLogin ? 'Login to see photos & videos' : 'Sign up to see photos & videos'}</p>
                         </div>
                         
-                        <form onSubmit={handleSubmit} className="space-y-4">
+                        <form onSubmit={handleSubmit} className="space-y-3">
                             {!isLogin && (
                                 <>
-                                    <input type="text" placeholder="Full Name" required className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none" value={name} onChange={e => setName(e.target.value)} />
-                                    <input type="text" placeholder="Username (unique)" required className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none" value={username} onChange={e => setUsername(e.target.value)} />
+                                    <input type="text" placeholder="Full Name" required className="w-full p-3 border border-slate-200 rounded-lg bg-slate-50 focus:ring-1 focus:ring-slate-400 outline-none text-sm" value={name} onChange={e => setName(e.target.value)} />
+                                    <input type="text" placeholder="Username" required className="w-full p-3 border border-slate-200 rounded-lg bg-slate-50 focus:ring-1 focus:ring-slate-400 outline-none text-sm" value={username} onChange={e => setUsername(e.target.value)} />
+                                    <select value={country} onChange={e => setCountry(e.target.value)} className="w-full p-3 border border-slate-200 rounded-lg bg-slate-50 text-sm">
+                                        <option value="India">India</option>
+                                        <option value="USA">USA</option>
+                                        <option value="UK">UK</option>
+                                        <option value="Canada">Canada</option>
+                                        <option value="Other">Other</option>
+                                    </select>
                                 </>
                             )}
-                            <input type="email" placeholder="Email" required className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none" value={email} onChange={e => setEmail(e.target.value)} />
-                            <input type="password" placeholder="Password" required className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none" value={password} onChange={e => setPassword(e.target.value)} />
+                            <input type="email" placeholder="Email" required className="w-full p-3 border border-slate-200 rounded-lg bg-slate-50 focus:ring-1 focus:ring-slate-400 outline-none text-sm" value={email} onChange={e => setEmail(e.target.value)} />
+                            <input type="password" placeholder="Password" required className="w-full p-3 border border-slate-200 rounded-lg bg-slate-50 focus:ring-1 focus:ring-slate-400 outline-none text-sm" value={password} onChange={e => setPassword(e.target.value)} />
                             
-                            {error && <div className="p-3 bg-red-50 text-red-600 text-sm rounded-lg text-center">{error}</div>}
+                            {error && <div className="p-3 text-red-500 text-xs text-center">{error}</div>}
                             
-                            <button disabled={loading} className="w-full bg-indigo-600 hover:bg-indigo-700 text-white p-3 rounded-xl font-bold transition shadow-lg shadow-indigo-200 disabled:opacity-50">
-                                {loading ? 'Processing...' : (isLogin ? 'Login' : 'Sign Up')}
+                            <button disabled={loading} className="w-full bg-blue-500 hover:bg-blue-600 text-white p-2 rounded-lg font-bold transition disabled:opacity-50 text-sm">
+                                {loading ? 'Processing...' : (isLogin ? 'Log In' : 'Sign Up')}
                             </button>
                         </form>
                         
-                        <p className="text-center mt-6 text-sm text-slate-600">
-                            {isLogin ? "New here?" : "Already joined?"} 
-                            <button onClick={() => setIsLogin(!isLogin)} className="text-indigo-600 font-bold ml-1 hover:underline">
-                                {isLogin ? 'Sign Up' : 'Login'}
-                            </button>
-                        </p>
+                        <div className="text-center mt-6 p-4 border-t border-slate-100">
+                            <p className="text-sm text-slate-600">
+                                {isLogin ? "Don't have an account?" : "Have an account?"} 
+                                <button onClick={() => setIsLogin(!isLogin)} className="text-blue-500 font-bold ml-1">
+                                    {isLogin ? 'Sign up' : 'Log in'}
+                                </button>
+                            </p>
+                        </div>
                     </div>
                 </div>
             );
         }
 
-        // 3. Edit Profile Component
+        // 3. View Profile Modal (Other Users)
+        function UserProfileModal({ currentUser, targetUser, onClose, isAdmin, onAction }) {
+            const [isFriend, setIsFriend] = useState(false);
+            const [requestStatus, setRequestStatus] = useState(null);
+
+            // Fetch relationship status logic would go here
+            // For simplicity in this view, we handle actions directly
+
+            return (
+                <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+                    <div className="bg-white rounded-2xl w-full max-w-sm overflow-hidden shadow-2xl animate-fade-in">
+                        <div className="h-24 bg-gradient-to-r from-purple-400 to-orange-400"></div>
+                        <div className="px-6 pb-6 -mt-12 text-center">
+                            <img src={targetUser.photoURL || "https://api.dicebear.com/7.x/avataaars/svg?seed=" + targetUser.uid} className="w-24 h-24 rounded-full border-4 border-white mx-auto bg-white object-cover" />
+                            
+                            <div className="mt-3">
+                                <h2 className="text-xl font-bold flex items-center justify-center gap-1">
+                                    {targetUser.name}
+                                    {targetUser.isVerified && <span className="material-icons-round text-blue-500 text-base">verified</span>}
+                                </h2>
+                                <p className="text-slate-500 text-sm">@{targetUser.username}</p>
+                                {targetUser.isBanned && <span className="bg-red-100 text-red-600 text-[10px] px-2 py-0.5 rounded-full font-bold">BANNED</span>}
+                            </div>
+
+                            <div className="mt-6 border-t border-slate-100 pt-4 text-left space-y-3">
+                                <h3 className="font-bold text-sm text-slate-800">About this account</h3>
+                                <div className="flex items-center gap-3 text-sm text-slate-600">
+                                    <span className="material-icons-round text-slate-400">calendar_today</span>
+                                    <div>
+                                        <p className="text-xs text-slate-400">Date Joined</p>
+                                        <p>{formatDateIST(targetUser.createdAt)}</p>
+                                    </div>
+                                </div>
+                                <div className="flex items-center gap-3 text-sm text-slate-600">
+                                    <span className="material-icons-round text-slate-400">public</span>
+                                    <div>
+                                        <p className="text-xs text-slate-400">Country Base</p>
+                                        <p>{targetUser.country || 'India'}</p>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Actions */}
+                            <div className="mt-6 grid grid-cols-2 gap-2">
+                                <button onClick={() => onAction('unfriend', targetUser)} className="w-full py-2 bg-slate-100 text-slate-700 rounded-lg text-sm font-semibold hover:bg-slate-200">Unfriend</button>
+                                <button onClick={() => onAction('block', targetUser)} className="w-full py-2 bg-red-50 text-red-600 rounded-lg text-sm font-semibold hover:bg-red-100">Block</button>
+                            </div>
+
+                            {/* ADMIN CONTROLS */}
+                            {isAdmin && (
+                                <div className="mt-4 p-3 bg-slate-900 rounded-xl text-white">
+                                    <p className="text-xs font-bold text-slate-400 mb-2 uppercase tracking-wider">Admin Controls</p>
+                                    <div className="grid grid-cols-2 gap-2">
+                                        <button onClick={() => onAction('toggle_verify', targetUser)} className="text-xs py-2 bg-blue-600 rounded hover:bg-blue-700">
+                                            {targetUser.isVerified ? 'Remove Badge' : 'Give Blue Tick'}
+                                        </button>
+                                        <button onClick={() => onAction('toggle_ban', targetUser)} className="text-xs py-2 bg-red-600 rounded hover:bg-red-700">
+                                            {targetUser.isBanned ? 'Unban User' : 'Ban User'}
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
+
+                            <button onClick={onClose} className="mt-4 text-slate-400 text-sm hover:text-slate-600">Close</button>
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+
+        // 4. Edit Profile (Self)
         function EditProfile({ user, onClose }) {
             const [name, setName] = useState(user.displayName || '');
-            const [username, setUsername] = useState('');
+            const [country, setCountry] = useState('');
             const [photoURL, setPhotoURL] = useState(user.photoURL || '');
             const [loading, setLoading] = useState(false);
 
             useEffect(() => {
-                // Fetch current username from Firestore
                 getDoc(doc(db, "users", user.uid)).then(d => {
-                    if (d.exists()) setUsername(d.data().username || '');
+                    if (d.exists()) {
+                        setCountry(d.data().country || 'India');
+                    }
                 });
             }, []);
 
@@ -228,98 +314,56 @@
                 e.preventDefault();
                 setLoading(true);
                 try {
-                    // Check username availability if changed
-                    const currentDoc = await getDoc(doc(db, "users", user.uid));
-                    const currentUsername = currentDoc.data().username;
-
-                    if (username !== currentUsername) {
-                        const q = query(collection(db, "users"), where("username", "==", username.toLowerCase()));
-                        const snap = await getDocs(q);
-                        if (!snap.empty) {
-                            alert("Username taken!");
-                            setLoading(false);
-                            return;
-                        }
-                    }
-
-                    // Update Auth Profile
                     await updateProfile(auth.currentUser, { displayName: name, photoURL: photoURL });
-                    
-                    // Update Firestore
                     await updateDoc(doc(db, "users", user.uid), {
                         name: name,
-                        username: username.toLowerCase(),
+                        country: country,
                         photoURL: photoURL
                     });
-                    
                     alert("Profile Updated!");
-                    onClose(); // Go back
-                } catch (e) {
-                    alert("Error: " + e.message);
-                } finally {
-                    setLoading(false);
-                }
-            };
-
-            const deleteAccount = async () => {
-                if(confirm("Are you sure? This action is irreversible.")) {
-                    try {
-                        await deleteDoc(doc(db, "users", user.uid));
-                        await deleteUser(user);
-                    } catch(e) { alert("Please login again to delete account."); }
-                }
+                    onClose();
+                } catch (e) { alert(e.message); } 
+                finally { setLoading(false); }
             };
 
             return (
                 <div className="flex flex-col h-full bg-slate-50 p-4 overflow-y-auto">
-                    <div className="max-w-md mx-auto w-full bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
+                    <div className="max-w-md mx-auto w-full bg-white p-6 rounded-2xl border border-slate-100">
                         <h2 className="text-xl font-bold mb-6 flex items-center gap-2">
-                            <button onClick={onClose} className="text-slate-400 hover:text-slate-600 md:hidden"><span className="material-icons-round">arrow_back</span></button>
+                            <button onClick={onClose} className="text-slate-400 md:hidden"><span className="material-icons-round">arrow_back</span></button>
                             Edit Profile
                         </h2>
-                        
-                        <div className="flex justify-center mb-6">
-                            <img src={photoURL || "https://api.dicebear.com/7.x/avataaars/svg?seed=" + user.uid} className="w-24 h-24 rounded-full border-4 border-indigo-50 object-cover" />
-                        </div>
-
                         <form onSubmit={handleSave} className="space-y-4">
                             <div>
-                                <label className="text-xs font-bold text-slate-500 uppercase">Display Name</label>
-                                <input type="text" value={name} onChange={e => setName(e.target.value)} className="w-full p-3 border rounded-lg mt-1 focus:ring-2 focus:ring-indigo-500 outline-none" />
+                                <label className="text-xs font-bold text-slate-500">Display Name</label>
+                                <input type="text" value={name} onChange={e => setName(e.target.value)} className="w-full p-3 border rounded-lg mt-1" />
                             </div>
                             <div>
-                                <label className="text-xs font-bold text-slate-500 uppercase">Username</label>
-                                <input type="text" value={username} onChange={e => setUsername(e.target.value)} className="w-full p-3 border rounded-lg mt-1 focus:ring-2 focus:ring-indigo-500 outline-none" />
+                                <label className="text-xs font-bold text-slate-500">Country Base</label>
+                                <select value={country} onChange={e => setCountry(e.target.value)} className="w-full p-3 border rounded-lg mt-1 bg-white">
+                                    <option value="India">India</option>
+                                    <option value="USA">USA</option>
+                                    <option value="UK">UK</option>
+                                    <option value="Canada">Canada</option>
+                                </select>
                             </div>
                             <div>
-                                <label className="text-xs font-bold text-slate-500 uppercase">Profile Picture URL</label>
-                                <input type="text" value={photoURL} onChange={e => setPhotoURL(e.target.value)} placeholder="https://..." className="w-full p-3 border rounded-lg mt-1 focus:ring-2 focus:ring-indigo-500 outline-none text-sm" />
-                                <p className="text-xs text-slate-400 mt-1">Paste a direct image link (e.g. from Imgur)</p>
+                                <label className="text-xs font-bold text-slate-500">Photo URL</label>
+                                <input type="text" value={photoURL} onChange={e => setPhotoURL(e.target.value)} placeholder="https://..." className="w-full p-3 border rounded-lg mt-1" />
                             </div>
-
-                            <button disabled={loading} className="w-full bg-indigo-600 text-white p-3 rounded-xl font-bold hover:bg-indigo-700 transition">
-                                {loading ? 'Saving...' : 'Save Changes'}
-                            </button>
+                            <button disabled={loading} className="w-full bg-blue-500 text-white p-3 rounded-lg font-bold">Save</button>
                         </form>
-
-                        <div className="mt-8 border-t pt-6">
-                            <button onClick={deleteAccount} className="w-full text-red-500 text-sm font-medium hover:bg-red-50 p-3 rounded-lg transition border border-red-100">
-                                Delete Account Permanently
-                            </button>
-                            
-                            <button onClick={() => signOut(auth)} className="w-full text-slate-600 text-sm font-medium hover:bg-slate-100 p-3 rounded-lg transition mt-2">
-                                Logout
-                            </button>
-                        </div>
+                        <button onClick={() => signOut(auth)} className="w-full text-red-500 mt-4 p-3 border border-red-100 rounded-lg hover:bg-red-50">Logout</button>
                     </div>
                 </div>
             );
         }
 
-        // 4. Dashboard
-        function Dashboard({ user }) {
-            const [view, setView] = useState('friends'); // friends, search, requests, chat, profile
+        // 5. Dashboard
+        function Dashboard({ user, userData }) {
+            const [view, setView] = useState('friends');
             const [activeChat, setActiveChat] = useState(null);
+            const [viewingProfile, setViewingProfile] = useState(null);
             
             // --- DATA STATES ---
             const [friends, setFriends] = useState([]);
@@ -327,39 +371,45 @@
             const [requests, setRequests] = useState([]);
             const [searchQuery, setSearchQuery] = useState('');
 
-            // Update Last Seen on Mount
+            // Admin Check
+            const isAdmin = userData?.username === 'admin';
+
+            // Update Last Seen
             useEffect(() => {
-                const updateStatus = async () => {
-                    await updateDoc(doc(db, "users", user.uid), { lastSeen: serverTimestamp() });
-                };
+                const updateStatus = () => updateDoc(doc(db, "users", user.uid), { lastSeen: serverTimestamp() });
                 updateStatus();
-                // Optional: Update every 5 minutes
                 const interval = setInterval(updateStatus, 300000); 
                 return () => clearInterval(interval);
             }, [user]);
 
             // Listeners
             useEffect(() => {
-                // 1. Friend Requests (To Me)
+                // Friend Requests
                 const qReq = query(collection(db, "friend_requests"), where("to", "==", user.uid));
                 const unsubReq = onSnapshot(qReq, (snap) => {
-                    const reqs = snap.docs.map(d => ({id: d.id, ...d.data()})).filter(r => r.status === 'pending');
-                    setRequests(reqs);
+                    setRequests(snap.docs.map(d => ({id: d.id, ...d.data()})).filter(r => r.status === 'pending'));
                 });
 
-                // 2. Friends Logic
+                // Friends
                 const unsubFriends = onSnapshot(collection(db, "friend_requests"), async (snap) => {
-                   const allDocs = snap.docs.map(d => d.data());
+                   const allDocs = snap.docs.map(d => ({docId: d.id, ...d.data()}));
+                   // Get accepted connections
                    const connections = allDocs.filter(d => (d.to === user.uid || d.from === user.uid) && d.status === 'accepted');
                    const friendIds = connections.map(c => c.to === user.uid ? c.from : c.to);
                    
-                   if(friendIds.length > 0) {
-                       // Fetch friend details (Realtime for status)
-                       // Note: Firestore 'in' query supports max 10, so fetching all users is safer for this demo scale
+                   // Filter out blocked connections
+                   const blocked = allDocs.filter(d => (d.to === user.uid || d.from === user.uid) && d.status === 'blocked');
+                   const blockedIds = blocked.map(c => c.to === user.uid ? c.from : c.to);
+
+                   const activeFriendIds = friendIds.filter(id => !blockedIds.includes(id));
+
+                   if(activeFriendIds.length > 0) {
                        const qUsers = query(collection(db, "users"));
                        const userSnap = await getDocs(qUsers);
-                       const allUsersData = userSnap.docs.map(d => d.data());
-                       const myFriends = allUsersData.filter(u => friendIds.includes(u.uid));
+                       // Enrich with docId for unfriend logic
+                       const myFriends = userSnap.docs.map(d => d.data())
+                           .filter(u => activeFriendIds.includes(u.uid))
+                           .map(u => ({...u, connectionId: connections.find(c => c.to === u.uid || c.from === u.uid).docId}));
                        setFriends(myFriends);
                    } else {
                        setFriends([]);
@@ -369,7 +419,7 @@
                 return () => { unsubReq(); unsubFriends(); };
             }, [user]);
 
-            // Handle Search
+            // Actions
             const handleSearch = async () => {
                 if(!searchQuery.trim()) return;
                 const snap = await getDocs(query(collection(db, "users")));
@@ -390,6 +440,48 @@
             };
 
             const acceptRequest = async (id) => await updateDoc(doc(db, "friend_requests", id), { status: 'accepted' });
+            
+            const handleProfileActions = async (action, targetUser) => {
+                try {
+                    if (action === 'toggle_verify') {
+                        await updateDoc(doc(db, "users", targetUser.uid), { isVerified: !targetUser.isVerified });
+                        alert("Status Updated");
+                    } 
+                    else if (action === 'toggle_ban') {
+                        await updateDoc(doc(db, "users", targetUser.uid), { isBanned: !targetUser.isBanned });
+                        alert("User Ban Status Updated");
+                    }
+                    else if (action === 'unfriend') {
+                        // Find connection ID
+                        const q1 = query(collection(db, "friend_requests"), where("from", "==", user.uid), where("to", "==", targetUser.uid));
+                        const q2 = query(collection(db, "friend_requests"), where("from", "==", targetUser.uid), where("to", "==", user.uid));
+                        const [snap1, snap2] = await Promise.all([getDocs(q1), getDocs(q2)]);
+                        const docToDelete = [...snap1.docs, ...snap2.docs][0];
+                        if(docToDelete) await deleteDoc(doc(db, "friend_requests", docToDelete.id));
+                        alert("Unfriended");
+                        setViewingProfile(null);
+                        setActiveChat(null);
+                    }
+                    else if (action === 'block') {
+                         // Find existing or create new block
+                         const q1 = query(collection(db, "friend_requests"), where("from", "==", user.uid), where("to", "==", targetUser.uid));
+                         const q2 = query(collection(db, "friend_requests"), where("from", "==", targetUser.uid), where("to", "==", user.uid));
+                         const [snap1, snap2] = await Promise.all([getDocs(q1), getDocs(q2)]);
+                         const docToUpdate = [...snap1.docs, ...snap2.docs][0];
+                         
+                         if(docToUpdate) {
+                             await updateDoc(doc(db, "friend_requests", docToUpdate.id), { status: 'blocked', blockedBy: user.uid });
+                         } else {
+                             await addDoc(collection(db, "friend_requests"), {
+                                 from: user.uid, to: targetUser.uid, status: 'blocked', blockedBy: user.uid, timestamp: serverTimestamp()
+                             });
+                         }
+                         alert("User Blocked");
+                         setViewingProfile(null);
+                         setActiveChat(null);
+                    }
+                } catch(e) { alert("Error: " + e.message); }
+            };
 
             // RENDER LOGIC
             if (view === 'profile') {
@@ -405,66 +497,82 @@
                 <div className="h-screen flex flex-col">
                     <Navbar user={user} onLogout={() => signOut(auth)} setView={setView} />
                     
-                    <div className="flex-1 overflow-hidden flex bg-slate-100">
-                        {/* SIDEBAR (List) */}
-                        <div className={`w-full md:w-96 bg-white border-r border-slate-200 flex flex-col ${activeChat ? 'hidden md:flex' : 'flex'}`}>
+                    {viewingProfile && (
+                        <UserProfileModal 
+                            currentUser={userData} 
+                            targetUser={viewingProfile} 
+                            isAdmin={isAdmin}
+                            onClose={() => setViewingProfile(null)}
+                            onAction={handleProfileActions}
+                        />
+                    )}
+
+                    <div className="flex-1 overflow-hidden flex bg-white">
+                        {/* SIDEBAR */}
+                        <div className={`w-full md:w-96 border-r border-slate-200 flex flex-col ${activeChat ? 'hidden md:flex' : 'flex'}`}>
                             
-                            {/* Sub-Nav */}
                             <div className="p-2 grid grid-cols-3 gap-1 border-b">
-                                <button onClick={() => setView('friends')} className={`py-2 text-sm font-medium rounded-lg ${view === 'friends' ? 'bg-indigo-50 text-indigo-600' : 'text-slate-500 hover:bg-slate-50'}`}>Friends</button>
-                                <button onClick={() => setView('search')} className={`py-2 text-sm font-medium rounded-lg ${view === 'search' ? 'bg-indigo-50 text-indigo-600' : 'text-slate-500 hover:bg-slate-50'}`}>Search</button>
-                                <button onClick={() => setView('requests')} className={`relative py-2 text-sm font-medium rounded-lg ${view === 'requests' ? 'bg-indigo-50 text-indigo-600' : 'text-slate-500 hover:bg-slate-50'}`}>
-                                    Requests {requests.length > 0 && <span className="absolute top-1 right-2 w-2 h-2 bg-red-500 rounded-full"></span>}
+                                <button onClick={() => setView('friends')} className={`py-3 text-sm font-semibold border-b-2 transition ${view === 'friends' ? 'border-black text-black' : 'border-transparent text-slate-400'}`}>Friends</button>
+                                <button onClick={() => setView('search')} className={`py-3 text-sm font-semibold border-b-2 transition ${view === 'search' ? 'border-black text-black' : 'border-transparent text-slate-400'}`}>Search</button>
+                                <button onClick={() => setView('requests')} className={`relative py-3 text-sm font-semibold border-b-2 transition ${view === 'requests' ? 'border-black text-black' : 'border-transparent text-slate-400'}`}>
+                                    Reqs {requests.length > 0 && <span className="absolute top-3 right-4 w-2 h-2 bg-red-500 rounded-full"></span>}
                                 </button>
                             </div>
 
-                            {/* Sidebar Content */}
-                            <div className="flex-1 overflow-y-auto p-2">
+                            <div className="flex-1 overflow-y-auto p-0">
                                 {view === 'friends' && (
-                                    <div className="space-y-1">
+                                    <div className="divide-y divide-slate-50">
                                         {friends.map(f => (
-                                            <div key={f.uid} onClick={() => setActiveChat(f)} className={`p-3 rounded-xl cursor-pointer flex items-center gap-3 hover:bg-slate-50 ${activeChat?.uid === f.uid ? 'bg-indigo-50 ring-1 ring-indigo-200' : ''}`}>
-                                                <div className="relative">
-                                                    <img src={f.photoURL || "https://api.dicebear.com/7.x/avataaars/svg?seed=" + f.uid} className="w-10 h-10 rounded-full object-cover bg-slate-200" />
-                                                    {/* Online Indicator could go here based on lastSeen */}
+                                            <div key={f.uid} className="flex items-center justify-between p-4 hover:bg-slate-50 transition cursor-pointer">
+                                                <div className="flex items-center gap-3 flex-1" onClick={() => setActiveChat(f)}>
+                                                    <div className="relative">
+                                                        <img src={f.photoURL || "https://api.dicebear.com/7.x/avataaars/svg?seed=" + f.uid} className="w-12 h-12 rounded-full border border-slate-200" />
+                                                        {f.isVerified && <span className="absolute -bottom-1 -right-1 bg-white rounded-full p-0.5"><span className="material-icons-round text-blue-500 text-xs">verified</span></span>}
+                                                    </div>
+                                                    <div>
+                                                        <h4 className="font-semibold text-slate-900">{f.name}</h4>
+                                                        <p className="text-xs text-slate-500">{formatLastSeen(f.lastSeen)}</p>
+                                                    </div>
                                                 </div>
-                                                <div className="flex-1 min-w-0">
-                                                    <h4 className="font-semibold text-slate-800 truncate">{f.name}</h4>
-                                                    <p className="text-xs text-slate-500">{formatLastSeen(f.lastSeen)}</p>
-                                                </div>
+                                                <button onClick={() => setViewingProfile(f)} className="text-slate-400 hover:text-black p-2"><span className="material-icons-round">info</span></button>
                                             </div>
                                         ))}
-                                        {friends.length === 0 && <div className="text-center mt-10 text-slate-400 text-sm">No friends yet.</div>}
                                     </div>
                                 )}
 
                                 {view === 'search' && (
-                                    <div className="space-y-3 p-2">
-                                        <div className="flex gap-2">
-                                            <input className="flex-1 p-2 border rounded-lg text-sm outline-none focus:ring-2 focus:ring-indigo-500" placeholder="Find people..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} />
-                                            <button onClick={handleSearch} className="bg-indigo-600 text-white p-2 rounded-lg"><span className="material-icons-round text-sm">search</span></button>
+                                    <div className="p-4 space-y-4">
+                                        <div className="flex gap-2 bg-slate-100 p-2 rounded-lg">
+                                            <span className="material-icons-round text-slate-400">search</span>
+                                            <input className="bg-transparent text-sm outline-none flex-1" placeholder="Search" value={searchQuery} onChange={e => setSearchQuery(e.target.value)} />
+                                            <button onClick={handleSearch} className="text-xs font-bold text-blue-500">GO</button>
                                         </div>
                                         {usersList.map(u => (
-                                            <div key={u.uid} className="flex justify-between items-center p-3 border rounded-xl bg-white">
-                                                <div className="flex items-center gap-2">
-                                                    <img src={u.photoURL || "https://api.dicebear.com/7.x/avataaars/svg?seed=" + u.uid} className="w-8 h-8 rounded-full" />
+                                            <div key={u.uid} className="flex justify-between items-center py-2">
+                                                <div className="flex items-center gap-3 cursor-pointer" onClick={() => setViewingProfile(u)}>
+                                                    <img src={u.photoURL || "https://api.dicebear.com/7.x/avataaars/svg?seed=" + u.uid} className="w-10 h-10 rounded-full" />
                                                     <div>
-                                                        <p className="text-sm font-bold">{u.name}</p>
+                                                        <div className="flex items-center gap-1">
+                                                            <p className="text-sm font-bold">{u.name}</p>
+                                                            {u.isVerified && <span className="material-icons-round text-blue-500 text-[10px]">verified</span>}
+                                                        </div>
                                                         <p className="text-xs text-slate-400">@{u.username}</p>
                                                     </div>
                                                 </div>
-                                                <button onClick={() => sendRequest(u)} className="text-xs bg-slate-900 text-white px-3 py-1 rounded-full">Add</button>
+                                                <button onClick={() => sendRequest(u)} className="text-xs bg-blue-500 text-white px-4 py-1.5 rounded font-bold">Follow</button>
                                             </div>
                                         ))}
                                     </div>
                                 )}
 
                                 {view === 'requests' && requests.map(r => (
-                                    <div key={r.id} className="p-3 mb-2 bg-yellow-50 border border-yellow-100 rounded-xl">
-                                        <p className="text-sm font-bold text-slate-800 mb-2">{r.fromName} wants to connect</p>
+                                    <div key={r.id} className="p-4 flex items-center justify-between border-b border-slate-50">
+                                        <div className="text-sm">
+                                            <span className="font-bold">{r.fromName}</span> sent a request.
+                                        </div>
                                         <div className="flex gap-2">
-                                            <button onClick={() => acceptRequest(r.id)} className="flex-1 bg-indigo-600 text-white text-xs py-2 rounded-lg">Accept</button>
-                                            <button onClick={() => deleteDoc(doc(db,"friend_requests",r.id))} className="flex-1 bg-slate-200 text-slate-700 text-xs py-2 rounded-lg">Ignore</button>
+                                            <button onClick={() => acceptRequest(r.id)} className="bg-blue-500 text-white text-xs px-3 py-1.5 rounded font-bold">Confirm</button>
+                                            <button onClick={() => deleteDoc(doc(db,"friend_requests",r.id))} className="bg-slate-200 text-black text-xs px-3 py-1.5 rounded font-bold">Delete</button>
                                         </div>
                                     </div>
                                 ))}
@@ -472,13 +580,16 @@
                         </div>
 
                         {/* CHAT AREA */}
-                        <div className={`flex-1 flex flex-col bg-[#eef2f6] ${activeChat ? 'flex fixed inset-0 z-50 md:static' : 'hidden md:flex'}`}>
+                        <div className={`flex-1 flex flex-col bg-white ${activeChat ? 'flex fixed inset-0 z-50 md:static' : 'hidden md:flex'}`}>
                             {activeChat ? (
-                                <ChatWindow currentUser={user} targetUser={activeChat} onBack={() => setActiveChat(null)} />
+                                <ChatWindow currentUser={user} targetUser={activeChat} onBack={() => setActiveChat(null)} onInfo={() => setViewingProfile(activeChat)} />
                             ) : (
-                                <div className="flex-1 flex flex-col items-center justify-center text-slate-400">
-                                    <span className="material-icons-round text-6xl mb-2 text-indigo-200">chat</span>
-                                    <p>Select a conversation</p>
+                                <div className="flex-1 flex flex-col items-center justify-center text-slate-300">
+                                    <div className="w-24 h-24 border-2 border-slate-200 rounded-full flex items-center justify-center mb-4">
+                                        <span className="material-icons-round text-4xl text-slate-200">send</span>
+                                    </div>
+                                    <p>Your Messages</p>
+                                    <p className="text-sm">Send private photos and messages to a friend.</p>
                                 </div>
                             )}
                         </div>
@@ -487,8 +598,8 @@
             );
         }
 
-        // 5. Chat Window
-        function ChatWindow({ currentUser, targetUser, onBack }) {
+        // 6. Chat Window
+        function ChatWindow({ currentUser, targetUser, onBack, onInfo }) {
             const [messages, setMessages] = useState([]);
             const [input, setInput] = useState('');
             const scrollRef = useRef();
@@ -513,42 +624,47 @@
                     chatId, text: input, senderId: currentUser.uid, timestamp: serverTimestamp()
                 });
                 setInput('');
-                // Update my last seen
                 updateDoc(doc(db, "users", currentUser.uid), { lastSeen: serverTimestamp() });
             };
 
             const deleteMessage = async (id) => {
-                if(confirm("Delete message?")) await deleteDoc(doc(db, "messages", id));
+                if(confirm("Unsend message?")) await deleteDoc(doc(db, "messages", id));
             };
 
             return (
-                <div className="flex flex-col h-full bg-white md:bg-transparent">
-                    {/* Chat Header */}
-                    <div className="bg-white px-4 py-3 border-b flex items-center gap-3 shadow-sm md:shadow-none">
-                        <button onClick={onBack} className="md:hidden text-slate-500"><span className="material-icons-round">arrow_back</span></button>
-                        <img src={targetUser.photoURL || "https://api.dicebear.com/7.x/avataaars/svg?seed=" + targetUser.uid} className="w-10 h-10 rounded-full border bg-slate-100 object-cover" />
-                        <div className="flex-1">
-                            <h3 className="font-bold text-slate-800 leading-tight">{targetUser.name}</h3>
-                            <p className="text-xs text-slate-500">{formatLastSeen(targetUser.lastSeen)}</p>
+                <div className="flex flex-col h-full bg-white">
+                    {/* Header */}
+                    <div className="px-4 py-3 border-b flex items-center gap-3">
+                        <button onClick={onBack} className="md:hidden text-slate-800"><span className="material-icons-round">arrow_back</span></button>
+                        <div className="flex items-center gap-3 cursor-pointer" onClick={onInfo}>
+                            <img src={targetUser.photoURL || "https://api.dicebear.com/7.x/avataaars/svg?seed=" + targetUser.uid} className="w-8 h-8 rounded-full border border-slate-200" />
+                            <div>
+                                <h3 className="font-bold text-sm flex items-center gap-1">
+                                    {targetUser.name}
+                                    {targetUser.isVerified && <span className="material-icons-round text-blue-500 text-[10px]">verified</span>}
+                                </h3>
+                                <p className="text-xs text-slate-500">{formatLastSeen(targetUser.lastSeen)}</p>
+                            </div>
                         </div>
+                        <div className="flex-1"></div>
+                        <button onClick={onInfo} className="text-slate-800"><span className="material-icons-round">info_outline</span></button>
                     </div>
 
-                    {/* Messages List */}
-                    <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-[#e5e7eb]">
+                    {/* Messages */}
+                    <div className="flex-1 overflow-y-auto p-4 space-y-2">
                         {messages.map(msg => {
                             const isMe = msg.senderId === currentUser.uid;
                             return (
                                 <div key={msg.id} className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
-                                    <div className={`max-w-[75%] md:max-w-[60%] flex flex-col ${isMe ? 'items-end' : 'items-start'}`}>
-                                        <div className={`px-4 py-2 rounded-2xl text-[15px] shadow-sm relative group ${
-                                            isMe ? 'bg-indigo-600 text-white rounded-br-none' : 'bg-white text-slate-800 rounded-bl-none'
+                                    <div className={`max-w-[70%] flex flex-col ${isMe ? 'items-end' : 'items-start'}`}>
+                                        <div 
+                                            onClick={() => isMe && deleteMessage(msg.id)}
+                                            className={`px-4 py-2 rounded-2xl text-[15px] cursor-pointer ${
+                                            isMe ? 'bg-blue-500 text-white' : 'bg-slate-100 text-slate-900'
                                         }`}>
                                             {msg.text}
-                                            {isMe && <button onClick={() => deleteMessage(msg.id)} className="absolute -left-6 top-2 text-slate-400 hover:text-red-500 opacity-0 group-hover:opacity-100"><span className="material-icons-round text-sm">delete</span></button>}
                                         </div>
-                                        <span className="text-[10px] text-slate-500 mt-1 px-1">
-                                            {formatTimeIST(msg.timestamp)}
-                                        </span>
+                                        <span className="text-[10px] text-slate-400 mt-1 px-1">{formatTimeIST(msg.timestamp)}</span>
                                     </div>
                                 </div>
                             );
@@ -556,13 +672,12 @@
                         <div ref={scrollRef}></div>
                     </div>
 
-                    {/* Input Area */}
-                    <form onSubmit={sendMessage} className="p-3 bg-white border-t flex gap-2">
-                        <input value={input} onChange={e => setInput(e.target.value)} placeholder="Type a message..." 
-                            className="flex-1 bg-slate-100 border-0 rounded-full px-4 py-3 focus:ring-2 focus:ring-indigo-500 outline-none" />
-                        <button type="submit" disabled={!input.trim()} className="bg-indigo-600 text-white w-12 h-12 rounded-full flex items-center justify-center hover:bg-indigo-700 transition disabled:opacity-50 shadow-md">
-                            <span className="material-icons-round">send</span>
-                        </button>
+                    {/* Input */}
+                    <form onSubmit={sendMessage} className="p-3 m-3 border rounded-full flex gap-2 items-center">
+                        <span className="material-icons-round text-slate-400 pl-2">sentiment_satisfied</span>
+                        <input value={input} onChange={e => setInput(e.target.value)} placeholder="Message..." 
+                            className="flex-1 bg-transparent outline-none text-sm" />
+                        <button type="submit" disabled={!input.trim()} className="text-blue-500 font-bold text-sm pr-2 disabled:opacity-50">Send</button>
                     </form>
                 </div>
             );
@@ -571,19 +686,40 @@
         // --- ROOT RENDER ---
         function App() {
             const [user, setUser] = useState(null);
+            const [userData, setUserData] = useState(null);
             const [loading, setLoading] = useState(true);
 
             useEffect(() => {
-                const unsub = onAuthStateChanged(auth, u => {
-                    setUser(u);
+                const unsub = onAuthStateChanged(auth, async (u) => {
+                    if (u) {
+                        // Check if banned
+                        const userDoc = await getDoc(doc(db, "users", u.uid));
+                        if (userDoc.exists()) {
+                            const data = userDoc.data();
+                            if (data.isBanned) {
+                                alert("Your account has been disabled by the admin.");
+                                await signOut(auth);
+                                setUser(null);
+                                setUserData(null);
+                            } else {
+                                setUser(u);
+                                setUserData(data);
+                            }
+                        } else {
+                            setUser(u);
+                        }
+                    } else {
+                        setUser(null);
+                        setUserData(null);
+                    }
                     setLoading(false);
                 });
                 return () => unsub();
             }, []);
 
-            if (loading) return <div className="h-screen flex items-center justify-center text-indigo-600 font-medium">Loading...</div>;
+            if (loading) return <div className="h-screen flex items-center justify-center"><img src="https://upload.wikimedia.org/wikipedia/commons/2/2a/Instagram_logo.svg" className="w-16 animate-pulse"/></div>;
 
-            return user ? <Dashboard user={user} /> : <AuthPage setUser={setUser} />;
+            return user ? <Dashboard user={user} userData={userData} /> : <AuthPage setUser={setUser} />;
         }
 
         const root = ReactDOM.createRoot(document.getElementById('root'));
