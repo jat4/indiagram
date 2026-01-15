@@ -1,0 +1,593 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>My Social Site</title>
+    
+    <!-- 1. Tailwind CSS (Design) -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- 2. React Libraries -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    
+    <!-- 3. Babel (JSX Compiler) -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <!-- Google Fonts & Icons -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons+Round" rel="stylesheet">
+    
+    <style>
+        body { font-family: 'Inter', sans-serif; background-color: #f3f4f6; }
+        .scrollbar-hide::-webkit-scrollbar { display: none; }
+        .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+        .glass-effect { background: rgba(255, 255, 255, 0.95); backdrop-filter: blur(10px); }
+    </style>
+</head>
+<body class="text-slate-900 h-screen overflow-hidden">
+
+    <div id="root" class="h-full"></div>
+
+    <!-- Main Logic -->
+    <script type="text/babel" data-type="module">
+        // --- IMPORTS ---
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+        import { 
+            getAuth, 
+            signInWithEmailAndPassword, 
+            createUserWithEmailAndPassword, 
+            signOut, 
+            onAuthStateChanged,
+            updateProfile,
+            deleteUser
+        } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
+        import { 
+            getFirestore, 
+            collection, 
+            addDoc, 
+            getDocs,
+            getDoc,
+            onSnapshot, 
+            query, 
+            where, 
+            doc, 
+            deleteDoc, 
+            setDoc, 
+            updateDoc,
+            serverTimestamp 
+        } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+
+        // --- CONFIGURATION ---
+        const firebaseConfig = {
+            apiKey: "AIzaSyBIWFvOKLOpOFfik5YmsERR9pVLjs7tYTc",
+            authDomain: "make-a-site.firebaseapp.com",
+            projectId: "make-a-site",
+            storageBucket: "make-a-site.firebasestorage.app",
+            messagingSenderId: "1099071295300",
+            appId: "1:1099071295300:web:c5e997a1591b9ffee55111"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+        const { useState, useEffect, useRef } = React;
+
+        // --- UTILS: TIME FORMATTER (IST) ---
+        const formatTimeIST = (timestamp) => {
+            if (!timestamp) return '';
+            const date = new Date(timestamp.seconds * 1000);
+            return date.toLocaleTimeString('en-IN', {
+                timeZone: 'Asia/Kolkata',
+                hour: 'numeric',
+                minute: '2-digit',
+                hour12: true
+            });
+        };
+
+        const formatLastSeen = (timestamp) => {
+            if (!timestamp) return 'Offline';
+            const date = new Date(timestamp.seconds * 1000);
+            const now = new Date();
+            const diff = now - date;
+            
+            // If less than 2 minutes ago
+            if (diff < 120000) return 'Online';
+
+            // Show date and time
+            return date.toLocaleString('en-IN', {
+                timeZone: 'Asia/Kolkata',
+                day: 'numeric', month: 'short',
+                hour: 'numeric', minute: '2-digit', hour12: true
+            });
+        };
+
+        // --- COMPONENTS ---
+
+        // 1. Navigation Bar
+        function Navbar({ user, onLogout, setView }) {
+            return (
+                <nav className="bg-white border-b border-slate-200 h-16 flex items-center justify-between px-4 sticky top-0 z-50">
+                    <div className="flex items-center gap-2 font-bold text-xl text-indigo-600 cursor-pointer" onClick={() => setView('friends')}>
+                        <span className="material-icons-round">chat_bubble</span> SocialSite
+                    </div>
+                    {user && (
+                        <div className="flex items-center gap-3">
+                            <button onClick={() => setView('profile')} className="flex items-center gap-2 hover:bg-slate-100 p-1 pr-3 rounded-full transition">
+                                <img 
+                                    src={user.photoURL || "https://api.dicebear.com/7.x/avataaars/svg?seed=" + user.uid} 
+                                    className="w-8 h-8 rounded-full border border-slate-300 object-cover" 
+                                    alt="Profile"
+                                />
+                                <span className="text-sm font-medium hidden md:block">{user.displayName?.split(' ')[0]}</span>
+                            </button>
+                        </div>
+                    )}
+                </nav>
+            );
+        }
+
+        // 2. Auth Page
+        function AuthPage({ setUser }) {
+            const [isLogin, setIsLogin] = useState(true);
+            const [email, setEmail] = useState('');
+            const [password, setPassword] = useState('');
+            const [name, setName] = useState('');
+            const [username, setUsername] = useState('');
+            const [error, setError] = useState('');
+            const [loading, setLoading] = useState(false);
+
+            const handleSubmit = async (e) => {
+                e.preventDefault();
+                setLoading(true);
+                setError('');
+                try {
+                    if (isLogin) {
+                        await signInWithEmailAndPassword(auth, email, password);
+                    } else {
+                        if (!username) throw new Error("Username is required");
+                        // Check username availability first
+                        const q = query(collection(db, "users"), where("username", "==", username.toLowerCase()));
+                        const snap = await getDocs(q);
+                        if(!snap.empty) throw new Error("Username already taken!");
+
+                        const res = await createUserWithEmailAndPassword(auth, email, password);
+                        await updateProfile(res.user, { displayName: name, photoURL: "" });
+                        
+                        await setDoc(doc(db, "users", res.user.uid), {
+                            uid: res.user.uid,
+                            name: name,
+                            username: username.toLowerCase(),
+                            email: email,
+                            photoURL: "",
+                            lastSeen: serverTimestamp(),
+                            createdAt: serverTimestamp()
+                        });
+                    }
+                } catch (err) {
+                    setError(err.message.replace('Firebase:', ''));
+                } finally {
+                    setLoading(false);
+                }
+            };
+
+            return (
+                <div className="min-h-screen flex items-center justify-center p-4 bg-gradient-to-br from-indigo-50 to-blue-100">
+                    <div className="bg-white p-8 rounded-2xl shadow-xl w-full max-w-md">
+                        <div className="text-center mb-8">
+                            <div className="w-16 h-16 bg-indigo-100 rounded-full flex items-center justify-center mx-auto mb-4 text-indigo-600">
+                                <span className="material-icons-round text-3xl">person</span>
+                            </div>
+                            <h2 className="text-2xl font-bold text-slate-800">{isLogin ? 'Welcome Back' : 'Create Account'}</h2>
+                        </div>
+                        
+                        <form onSubmit={handleSubmit} className="space-y-4">
+                            {!isLogin && (
+                                <>
+                                    <input type="text" placeholder="Full Name" required className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none" value={name} onChange={e => setName(e.target.value)} />
+                                    <input type="text" placeholder="Username (unique)" required className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none" value={username} onChange={e => setUsername(e.target.value)} />
+                                </>
+                            )}
+                            <input type="email" placeholder="Email" required className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none" value={email} onChange={e => setEmail(e.target.value)} />
+                            <input type="password" placeholder="Password" required className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none" value={password} onChange={e => setPassword(e.target.value)} />
+                            
+                            {error && <div className="p-3 bg-red-50 text-red-600 text-sm rounded-lg text-center">{error}</div>}
+                            
+                            <button disabled={loading} className="w-full bg-indigo-600 hover:bg-indigo-700 text-white p-3 rounded-xl font-bold transition shadow-lg shadow-indigo-200 disabled:opacity-50">
+                                {loading ? 'Processing...' : (isLogin ? 'Login' : 'Sign Up')}
+                            </button>
+                        </form>
+                        
+                        <p className="text-center mt-6 text-sm text-slate-600">
+                            {isLogin ? "New here?" : "Already joined?"} 
+                            <button onClick={() => setIsLogin(!isLogin)} className="text-indigo-600 font-bold ml-1 hover:underline">
+                                {isLogin ? 'Sign Up' : 'Login'}
+                            </button>
+                        </p>
+                    </div>
+                </div>
+            );
+        }
+
+        // 3. Edit Profile Component
+        function EditProfile({ user, onClose }) {
+            const [name, setName] = useState(user.displayName || '');
+            const [username, setUsername] = useState('');
+            const [photoURL, setPhotoURL] = useState(user.photoURL || '');
+            const [loading, setLoading] = useState(false);
+
+            useEffect(() => {
+                // Fetch current username from Firestore
+                getDoc(doc(db, "users", user.uid)).then(d => {
+                    if (d.exists()) setUsername(d.data().username || '');
+                });
+            }, []);
+
+            const handleSave = async (e) => {
+                e.preventDefault();
+                setLoading(true);
+                try {
+                    // Check username availability if changed
+                    const currentDoc = await getDoc(doc(db, "users", user.uid));
+                    const currentUsername = currentDoc.data().username;
+
+                    if (username !== currentUsername) {
+                        const q = query(collection(db, "users"), where("username", "==", username.toLowerCase()));
+                        const snap = await getDocs(q);
+                        if (!snap.empty) {
+                            alert("Username taken!");
+                            setLoading(false);
+                            return;
+                        }
+                    }
+
+                    // Update Auth Profile
+                    await updateProfile(auth.currentUser, { displayName: name, photoURL: photoURL });
+                    
+                    // Update Firestore
+                    await updateDoc(doc(db, "users", user.uid), {
+                        name: name,
+                        username: username.toLowerCase(),
+                        photoURL: photoURL
+                    });
+                    
+                    alert("Profile Updated!");
+                    onClose(); // Go back
+                } catch (e) {
+                    alert("Error: " + e.message);
+                } finally {
+                    setLoading(false);
+                }
+            };
+
+            const deleteAccount = async () => {
+                if(confirm("Are you sure? This action is irreversible.")) {
+                    try {
+                        await deleteDoc(doc(db, "users", user.uid));
+                        await deleteUser(user);
+                    } catch(e) { alert("Please login again to delete account."); }
+                }
+            };
+
+            return (
+                <div className="flex flex-col h-full bg-slate-50 p-4 overflow-y-auto">
+                    <div className="max-w-md mx-auto w-full bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
+                        <h2 className="text-xl font-bold mb-6 flex items-center gap-2">
+                            <button onClick={onClose} className="text-slate-400 hover:text-slate-600 md:hidden"><span className="material-icons-round">arrow_back</span></button>
+                            Edit Profile
+                        </h2>
+                        
+                        <div className="flex justify-center mb-6">
+                            <img src={photoURL || "https://api.dicebear.com/7.x/avataaars/svg?seed=" + user.uid} className="w-24 h-24 rounded-full border-4 border-indigo-50 object-cover" />
+                        </div>
+
+                        <form onSubmit={handleSave} className="space-y-4">
+                            <div>
+                                <label className="text-xs font-bold text-slate-500 uppercase">Display Name</label>
+                                <input type="text" value={name} onChange={e => setName(e.target.value)} className="w-full p-3 border rounded-lg mt-1 focus:ring-2 focus:ring-indigo-500 outline-none" />
+                            </div>
+                            <div>
+                                <label className="text-xs font-bold text-slate-500 uppercase">Username</label>
+                                <input type="text" value={username} onChange={e => setUsername(e.target.value)} className="w-full p-3 border rounded-lg mt-1 focus:ring-2 focus:ring-indigo-500 outline-none" />
+                            </div>
+                            <div>
+                                <label className="text-xs font-bold text-slate-500 uppercase">Profile Picture URL</label>
+                                <input type="text" value={photoURL} onChange={e => setPhotoURL(e.target.value)} placeholder="https://..." className="w-full p-3 border rounded-lg mt-1 focus:ring-2 focus:ring-indigo-500 outline-none text-sm" />
+                                <p className="text-xs text-slate-400 mt-1">Paste a direct image link (e.g. from Imgur)</p>
+                            </div>
+
+                            <button disabled={loading} className="w-full bg-indigo-600 text-white p-3 rounded-xl font-bold hover:bg-indigo-700 transition">
+                                {loading ? 'Saving...' : 'Save Changes'}
+                            </button>
+                        </form>
+
+                        <div className="mt-8 border-t pt-6">
+                            <button onClick={deleteAccount} className="w-full text-red-500 text-sm font-medium hover:bg-red-50 p-3 rounded-lg transition border border-red-100">
+                                Delete Account Permanently
+                            </button>
+                            
+                            <button onClick={() => signOut(auth)} className="w-full text-slate-600 text-sm font-medium hover:bg-slate-100 p-3 rounded-lg transition mt-2">
+                                Logout
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+
+        // 4. Dashboard
+        function Dashboard({ user }) {
+            const [view, setView] = useState('friends'); // friends, search, requests, chat, profile
+            const [activeChat, setActiveChat] = useState(null);
+            
+            // --- DATA STATES ---
+            const [friends, setFriends] = useState([]);
+            const [usersList, setUsersList] = useState([]);
+            const [requests, setRequests] = useState([]);
+            const [searchQuery, setSearchQuery] = useState('');
+
+            // Update Last Seen on Mount
+            useEffect(() => {
+                const updateStatus = async () => {
+                    await updateDoc(doc(db, "users", user.uid), { lastSeen: serverTimestamp() });
+                };
+                updateStatus();
+                // Optional: Update every 5 minutes
+                const interval = setInterval(updateStatus, 300000); 
+                return () => clearInterval(interval);
+            }, [user]);
+
+            // Listeners
+            useEffect(() => {
+                // 1. Friend Requests (To Me)
+                const qReq = query(collection(db, "friend_requests"), where("to", "==", user.uid));
+                const unsubReq = onSnapshot(qReq, (snap) => {
+                    const reqs = snap.docs.map(d => ({id: d.id, ...d.data()})).filter(r => r.status === 'pending');
+                    setRequests(reqs);
+                });
+
+                // 2. Friends Logic
+                const unsubFriends = onSnapshot(collection(db, "friend_requests"), async (snap) => {
+                   const allDocs = snap.docs.map(d => d.data());
+                   const connections = allDocs.filter(d => (d.to === user.uid || d.from === user.uid) && d.status === 'accepted');
+                   const friendIds = connections.map(c => c.to === user.uid ? c.from : c.to);
+                   
+                   if(friendIds.length > 0) {
+                       // Fetch friend details (Realtime for status)
+                       // Note: Firestore 'in' query supports max 10, so fetching all users is safer for this demo scale
+                       const qUsers = query(collection(db, "users"));
+                       const userSnap = await getDocs(qUsers);
+                       const allUsersData = userSnap.docs.map(d => d.data());
+                       const myFriends = allUsersData.filter(u => friendIds.includes(u.uid));
+                       setFriends(myFriends);
+                   } else {
+                       setFriends([]);
+                   }
+                });
+
+                return () => { unsubReq(); unsubFriends(); };
+            }, [user]);
+
+            // Handle Search
+            const handleSearch = async () => {
+                if(!searchQuery.trim()) return;
+                const snap = await getDocs(query(collection(db, "users")));
+                const results = snap.docs.map(d => d.data())
+                    .filter(u => u.uid !== user.uid && 
+                           (u.username?.includes(searchQuery.toLowerCase()) || 
+                            u.name?.toLowerCase().includes(searchQuery.toLowerCase())));
+                setUsersList(results);
+            };
+
+            const sendRequest = async (target) => {
+                try {
+                    await addDoc(collection(db, "friend_requests"), {
+                        from: user.uid, fromName: user.displayName, to: target.uid, status: 'pending', timestamp: serverTimestamp()
+                    });
+                    alert("Request Sent!");
+                } catch(e) { console.error(e); }
+            };
+
+            const acceptRequest = async (id) => await updateDoc(doc(db, "friend_requests", id), { status: 'accepted' });
+
+            // RENDER LOGIC
+            if (view === 'profile') {
+                return (
+                    <div className="h-screen flex flex-col">
+                        <Navbar user={user} onLogout={() => signOut(auth)} setView={setView} />
+                        <EditProfile user={user} onClose={() => setView('friends')} />
+                    </div>
+                );
+            }
+
+            return (
+                <div className="h-screen flex flex-col">
+                    <Navbar user={user} onLogout={() => signOut(auth)} setView={setView} />
+                    
+                    <div className="flex-1 overflow-hidden flex bg-slate-100">
+                        {/* SIDEBAR (List) */}
+                        <div className={`w-full md:w-96 bg-white border-r border-slate-200 flex flex-col ${activeChat ? 'hidden md:flex' : 'flex'}`}>
+                            
+                            {/* Sub-Nav */}
+                            <div className="p-2 grid grid-cols-3 gap-1 border-b">
+                                <button onClick={() => setView('friends')} className={`py-2 text-sm font-medium rounded-lg ${view === 'friends' ? 'bg-indigo-50 text-indigo-600' : 'text-slate-500 hover:bg-slate-50'}`}>Friends</button>
+                                <button onClick={() => setView('search')} className={`py-2 text-sm font-medium rounded-lg ${view === 'search' ? 'bg-indigo-50 text-indigo-600' : 'text-slate-500 hover:bg-slate-50'}`}>Search</button>
+                                <button onClick={() => setView('requests')} className={`relative py-2 text-sm font-medium rounded-lg ${view === 'requests' ? 'bg-indigo-50 text-indigo-600' : 'text-slate-500 hover:bg-slate-50'}`}>
+                                    Requests {requests.length > 0 && <span className="absolute top-1 right-2 w-2 h-2 bg-red-500 rounded-full"></span>}
+                                </button>
+                            </div>
+
+                            {/* Sidebar Content */}
+                            <div className="flex-1 overflow-y-auto p-2">
+                                {view === 'friends' && (
+                                    <div className="space-y-1">
+                                        {friends.map(f => (
+                                            <div key={f.uid} onClick={() => setActiveChat(f)} className={`p-3 rounded-xl cursor-pointer flex items-center gap-3 hover:bg-slate-50 ${activeChat?.uid === f.uid ? 'bg-indigo-50 ring-1 ring-indigo-200' : ''}`}>
+                                                <div className="relative">
+                                                    <img src={f.photoURL || "https://api.dicebear.com/7.x/avataaars/svg?seed=" + f.uid} className="w-10 h-10 rounded-full object-cover bg-slate-200" />
+                                                    {/* Online Indicator could go here based on lastSeen */}
+                                                </div>
+                                                <div className="flex-1 min-w-0">
+                                                    <h4 className="font-semibold text-slate-800 truncate">{f.name}</h4>
+                                                    <p className="text-xs text-slate-500">{formatLastSeen(f.lastSeen)}</p>
+                                                </div>
+                                            </div>
+                                        ))}
+                                        {friends.length === 0 && <div className="text-center mt-10 text-slate-400 text-sm">No friends yet.</div>}
+                                    </div>
+                                )}
+
+                                {view === 'search' && (
+                                    <div className="space-y-3 p-2">
+                                        <div className="flex gap-2">
+                                            <input className="flex-1 p-2 border rounded-lg text-sm outline-none focus:ring-2 focus:ring-indigo-500" placeholder="Find people..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} />
+                                            <button onClick={handleSearch} className="bg-indigo-600 text-white p-2 rounded-lg"><span className="material-icons-round text-sm">search</span></button>
+                                        </div>
+                                        {usersList.map(u => (
+                                            <div key={u.uid} className="flex justify-between items-center p-3 border rounded-xl bg-white">
+                                                <div className="flex items-center gap-2">
+                                                    <img src={u.photoURL || "https://api.dicebear.com/7.x/avataaars/svg?seed=" + u.uid} className="w-8 h-8 rounded-full" />
+                                                    <div>
+                                                        <p className="text-sm font-bold">{u.name}</p>
+                                                        <p className="text-xs text-slate-400">@{u.username}</p>
+                                                    </div>
+                                                </div>
+                                                <button onClick={() => sendRequest(u)} className="text-xs bg-slate-900 text-white px-3 py-1 rounded-full">Add</button>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+
+                                {view === 'requests' && requests.map(r => (
+                                    <div key={r.id} className="p-3 mb-2 bg-yellow-50 border border-yellow-100 rounded-xl">
+                                        <p className="text-sm font-bold text-slate-800 mb-2">{r.fromName} wants to connect</p>
+                                        <div className="flex gap-2">
+                                            <button onClick={() => acceptRequest(r.id)} className="flex-1 bg-indigo-600 text-white text-xs py-2 rounded-lg">Accept</button>
+                                            <button onClick={() => deleteDoc(doc(db,"friend_requests",r.id))} className="flex-1 bg-slate-200 text-slate-700 text-xs py-2 rounded-lg">Ignore</button>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+
+                        {/* CHAT AREA */}
+                        <div className={`flex-1 flex flex-col bg-[#eef2f6] ${activeChat ? 'flex fixed inset-0 z-50 md:static' : 'hidden md:flex'}`}>
+                            {activeChat ? (
+                                <ChatWindow currentUser={user} targetUser={activeChat} onBack={() => setActiveChat(null)} />
+                            ) : (
+                                <div className="flex-1 flex flex-col items-center justify-center text-slate-400">
+                                    <span className="material-icons-round text-6xl mb-2 text-indigo-200">chat</span>
+                                    <p>Select a conversation</p>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+
+        // 5. Chat Window
+        function ChatWindow({ currentUser, targetUser, onBack }) {
+            const [messages, setMessages] = useState([]);
+            const [input, setInput] = useState('');
+            const scrollRef = useRef();
+
+            useEffect(() => {
+                const chatId = [currentUser.uid, targetUser.uid].sort().join('_');
+                const q = query(collection(db, "messages"), where("chatId", "==", chatId));
+                const unsub = onSnapshot(q, (snap) => {
+                    const msgs = snap.docs.map(d => ({id: d.id, ...d.data()}))
+                        .sort((a,b) => (a.timestamp?.seconds || 0) - (b.timestamp?.seconds || 0));
+                    setMessages(msgs);
+                    setTimeout(() => scrollRef.current?.scrollIntoView({ behavior: "smooth" }), 100);
+                });
+                return () => unsub();
+            }, [targetUser]);
+
+            const sendMessage = async (e) => {
+                e.preventDefault();
+                if(!input.trim()) return;
+                const chatId = [currentUser.uid, targetUser.uid].sort().join('_');
+                await addDoc(collection(db, "messages"), {
+                    chatId, text: input, senderId: currentUser.uid, timestamp: serverTimestamp()
+                });
+                setInput('');
+                // Update my last seen
+                updateDoc(doc(db, "users", currentUser.uid), { lastSeen: serverTimestamp() });
+            };
+
+            const deleteMessage = async (id) => {
+                if(confirm("Delete message?")) await deleteDoc(doc(db, "messages", id));
+            };
+
+            return (
+                <div className="flex flex-col h-full bg-white md:bg-transparent">
+                    {/* Chat Header */}
+                    <div className="bg-white px-4 py-3 border-b flex items-center gap-3 shadow-sm md:shadow-none">
+                        <button onClick={onBack} className="md:hidden text-slate-500"><span className="material-icons-round">arrow_back</span></button>
+                        <img src={targetUser.photoURL || "https://api.dicebear.com/7.x/avataaars/svg?seed=" + targetUser.uid} className="w-10 h-10 rounded-full border bg-slate-100 object-cover" />
+                        <div className="flex-1">
+                            <h3 className="font-bold text-slate-800 leading-tight">{targetUser.name}</h3>
+                            <p className="text-xs text-slate-500">{formatLastSeen(targetUser.lastSeen)}</p>
+                        </div>
+                    </div>
+
+                    {/* Messages List */}
+                    <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-[#e5e7eb]">
+                        {messages.map(msg => {
+                            const isMe = msg.senderId === currentUser.uid;
+                            return (
+                                <div key={msg.id} className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
+                                    <div className={`max-w-[75%] md:max-w-[60%] flex flex-col ${isMe ? 'items-end' : 'items-start'}`}>
+                                        <div className={`px-4 py-2 rounded-2xl text-[15px] shadow-sm relative group ${
+                                            isMe ? 'bg-indigo-600 text-white rounded-br-none' : 'bg-white text-slate-800 rounded-bl-none'
+                                        }`}>
+                                            {msg.text}
+                                            {isMe && <button onClick={() => deleteMessage(msg.id)} className="absolute -left-6 top-2 text-slate-400 hover:text-red-500 opacity-0 group-hover:opacity-100"><span className="material-icons-round text-sm">delete</span></button>}
+                                        </div>
+                                        <span className="text-[10px] text-slate-500 mt-1 px-1">
+                                            {formatTimeIST(msg.timestamp)}
+                                        </span>
+                                    </div>
+                                </div>
+                            );
+                        })}
+                        <div ref={scrollRef}></div>
+                    </div>
+
+                    {/* Input Area */}
+                    <form onSubmit={sendMessage} className="p-3 bg-white border-t flex gap-2">
+                        <input value={input} onChange={e => setInput(e.target.value)} placeholder="Type a message..." 
+                            className="flex-1 bg-slate-100 border-0 rounded-full px-4 py-3 focus:ring-2 focus:ring-indigo-500 outline-none" />
+                        <button type="submit" disabled={!input.trim()} className="bg-indigo-600 text-white w-12 h-12 rounded-full flex items-center justify-center hover:bg-indigo-700 transition disabled:opacity-50 shadow-md">
+                            <span className="material-icons-round">send</span>
+                        </button>
+                    </form>
+                </div>
+            );
+        }
+
+        // --- ROOT RENDER ---
+        function App() {
+            const [user, setUser] = useState(null);
+            const [loading, setLoading] = useState(true);
+
+            useEffect(() => {
+                const unsub = onAuthStateChanged(auth, u => {
+                    setUser(u);
+                    setLoading(false);
+                });
+                return () => unsub();
+            }, []);
+
+            if (loading) return <div className="h-screen flex items-center justify-center text-indigo-600 font-medium">Loading...</div>;
+
+            return user ? <Dashboard user={user} /> : <AuthPage setUser={setUser} />;
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
