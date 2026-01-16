@@ -122,7 +122,7 @@
             return "Last seen " + date.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit', hour12: true });
         };
 
-        // --- COMPONENTS ---
+        // --- COMPONENTS DEFINITIONS ---
 
         function Navbar({ user, userData, onLogout, setView, activeView, unreadCount, notifCount }) {
             const photo = userData?.photoURL || user.photoURL || DEFAULT_AVATAR;
@@ -179,7 +179,6 @@
             );
         }
 
-        // --- AUTH ---
         function AuthPage({ setUser }) {
             const [isLogin, setIsLogin] = useState(true);
             const [emailInput, setEmailInput] = useState('');
@@ -274,7 +273,6 @@
             );
         }
 
-        // --- POST & MODALS ---
         function PostCard({ post, currentUser, onLike, onComment, onShare, onViewProfile, onDelete }) {
             const [comment, setComment] = useState('');
             const isLiked = post.likes?.includes(currentUser.uid);
@@ -435,7 +433,6 @@
             );
         }
 
-        // Post View Modal (For Grid Clicks)
         function PostViewModal({ post, currentUser, onClose, onLike, onComment, onShare, onDelete }) {
             return (
                 <div className="fixed inset-0 z-[200] bg-black/80 flex items-center justify-center p-4" onClick={onClose}>
@@ -457,224 +454,247 @@
             );
         }
 
-        // --- DASHBOARD ---
-        function Dashboard({ user, userData }) {
-            const [view, setView] = useState('feed'); 
-            const [posts, setPosts] = useState([]);
-            const [following, setFollowing] = useState([]);
-            const [viewingProfile, setViewingProfile] = useState(null);
-            const [activeChat, setActiveChat] = useState(null);
-            const [unreadCount, setUnreadCount] = useState(0);
-            const [notifications, setNotifications] = useState([]);
-            const [activePost, setActivePost] = useState(null); // For grid post click
+        function ExploreChatView({ user, userData, viewType, setViewingProfile }) {
+            const [usersList, setUsersList] = useState([]);
+            const [searchQuery, setSearchQuery] = useState('');
+            const [requests, setRequests] = useState([]);
 
-            // Fetch Following list
             useEffect(() => {
-                const q = query(collection(db, "friend_requests"), where("from", "==", user.uid), where("status", "==", "accepted"));
-                const unsub = onSnapshot(q, (snap) => {
-                    const ids = snap.docs.map(d => d.data().to);
-                    setFollowing([...ids, user.uid]); 
-                });
-                return () => unsub();
+                const qReq = query(collection(db, "friend_requests"), where("to", "==", user.uid), where("status", "==", "pending"));
+                onSnapshot(qReq, (snap) => setRequests(snap.docs.map(d => ({id: d.id, ...d.data()}))));
             }, [user]);
 
-            // Fetch Notifications (Fixed Query)
-            useEffect(() => {
-                const q = query(collection(db, "notifications"), where("to", "==", user.uid));
-                const unsub = onSnapshot(q, (snap) => {
-                    const notifs = snap.docs.map(d => ({id: d.id, ...d.data()}));
-                    notifs.sort((a, b) => (b.timestamp?.seconds || 0) - (a.timestamp?.seconds || 0)); 
-                    setNotifications(notifs.slice(0, 20)); 
-                });
-                return () => unsub();
-            }, [user]);
-
-            // Fetch Feed Posts
-            useEffect(() => {
-                if (view === 'feed') {
-                    const q = query(collection(db, "posts"), limit(50));
-                    const unsub = onSnapshot(q, (snap) => {
-                        let allPosts = snap.docs.map(d => ({id: d.id, ...d.data()}));
-                        if (following.length > 0) {
-                            allPosts = allPosts.filter(p => following.includes(p.userId));
-                        } else {
-                            allPosts = [];
-                        }
-                        allPosts.sort((a, b) => (b.timestamp?.seconds || 0) - (a.timestamp?.seconds || 0));
-                        setPosts(allPosts);
-                    });
-                    return () => unsub();
-                } else if (view === 'feed') {
-                    setPosts([]); 
-                }
-            }, [view, following]);
-
-            // Simple Unread Message Check
-            useEffect(() => {
-                const q = query(collection(db, "messages"), where("receiverId", "==", user.uid), limit(1));
-            }, []);
-
-            const addNotification = async (toUser, type, content = "") => {
-                if(toUser === user.uid) return;
-                await addDoc(collection(db, "notifications"), {
-                    from: user.uid, fromName: user.displayName, to: toUser, type: type, content: content, timestamp: serverTimestamp()
-                });
+            const handleSearch = async () => {
+                if(!searchQuery.trim()) return;
+                const snap = await getDocs(query(collection(db, "users"), limit(20)));
+                const results = snap.docs.map(d => d.data()).filter(u => 
+                    u.uid !== user.uid && (u.username.includes(searchQuery.toLowerCase()) || u.name.toLowerCase().includes(searchQuery.toLowerCase()))
+                );
+                setUsersList(results);
             };
 
-            const handleLike = async (postId, isLiked, postOwnerId) => {
-                const postRef = doc(db, "posts", postId);
-                const postDoc = await getDoc(postRef);
-                if (postDoc.exists()) {
-                    let likes = postDoc.data().likes || [];
-                    if (isLiked) likes = likes.filter(id => id !== user.uid);
-                    else {
-                        likes.push(user.uid);
-                        addNotification(postOwnerId, "like");
-                    }
-                    await updateDoc(postRef, { likes });
-                }
-            };
-
-            const handleComment = async (postId, text, postOwnerId) => {
-                const postRef = doc(db, "posts", postId);
-                const postDoc = await getDoc(postRef);
-                if (postDoc.exists()) {
-                    let comments = postDoc.data().comments || [];
-                    comments.push({ userId: user.uid, username: user.displayName, text: text, timestamp: Date.now() });
-                    await updateDoc(postRef, { comments });
-                    addNotification(postOwnerId, "comment", text);
-                }
-            };
-
-            const handleDeletePost = async (postId) => {
-                if(confirm("Delete this post?")) {
-                    await deleteDoc(doc(db, "posts", postId));
-                }
-            };
-
-            const handleShare = (post) => {
-                navigator.clipboard.writeText(`Check out this post: ${post.caption}`);
-                alert("Link copied!");
-            };
-
-            const startChat = (targetUser) => {
-                setViewingProfile(null);
-                setActiveChat(targetUser);
-                setView('messages');
-            };
+            const acceptRequest = async (id) => await updateDoc(doc(db, "friend_requests", id), { status: 'accepted' });
 
             return (
-                <div className="h-screen flex flex-col bg-slate-50 overflow-hidden">
-                    <Navbar user={user} userData={userData} onLogout={() => signOut(auth)} setView={setView} activeView={view} unreadCount={unreadCount} notifCount={notifications.length} />
-                    
-                    {viewingProfile && (
-                        <UserProfileModal 
-                            currentUser={userData} 
-                            targetUser={viewingProfile} 
-                            isAdmin={userData?.username === 'admin'} 
-                            onClose={() => setViewingProfile(null)} 
-                            onViewProfile={setViewingProfile}
-                            onMessage={startChat}
-                            onAddNotif={addNotification}
-                            onViewPost={setActivePost}
-                        />
-                    )}
-
-                    {activePost && (
-                        <PostViewModal 
-                            post={activePost}
-                            currentUser={user}
-                            onClose={() => setActivePost(null)}
-                            onLike={handleLike}
-                            onComment={handleComment}
-                            onShare={handleShare}
-                            onDelete={handleDeletePost}
-                        />
-                    )}
-
-                    {view === 'create_post' && <CreatePostModal user={user} onClose={() => setView('feed')} />}
-
-                    <div className="flex-1 overflow-y-auto w-full p-0 md:p-4 max-w-4xl mx-auto pb-20">
-                        
-                        {view === 'feed' && (
-                            <div className="max-w-lg mx-auto">
-                                {posts.length === 0 ? (
-                                    <div className="text-center mt-10">
-                                        <p className="text-xl font-insta mb-2">Welcome to Indiagram</p>
-                                        <p className="text-sm text-slate-500">Follow people to see their photos here.</p>
-                                        <button onClick={() => setView('explore')} className="text-blue-500 font-bold mt-2">Find People</button>
-                                    </div>
-                                ) : (
-                                    posts.map(post => (
-                                        <PostCard 
-                                            key={post.id} 
-                                            post={post} 
-                                            currentUser={user} 
-                                            onLike={handleLike} 
-                                            onComment={handleComment}
-                                            onShare={handleShare}
-                                            onDelete={handleDeletePost}
-                                            onViewProfile={setViewingProfile}
-                                        />
-                                    ))
-                                )}
-                            </div>
-                        )}
-
-                        {view === 'notifications' && (
-                            <div className="max-w-md mx-auto bg-white rounded-lg shadow-sm border p-4">
-                                <h3 className="font-bold text-lg mb-4">Notifications</h3>
-                                {notifications.length === 0 ? <p className="text-slate-500 text-center">No notifications</p> : 
-                                    notifications.map(n => (
-                                        <div key={n.id} className="flex items-center gap-3 p-3 border-b last:border-0">
-                                            <div className="w-10 h-10 rounded-full bg-slate-200 flex items-center justify-center font-bold text-slate-600">{n.fromName[0]}</div>
-                                            <div className="text-sm">
-                                                <span className="font-bold">{n.fromName}</span> 
-                                                {n.type === 'like' && ' liked your post.'}
-                                                {n.type === 'comment' && ` commented: "${n.content}"`}
-                                                {n.type === 'follow' && ' started following you.'}
-                                                <p className="text-xs text-slate-400">{formatDateIST(n.timestamp)}</p>
-                                            </div>
+                <div className="bg-white rounded-xl shadow-sm border flex flex-col h-[80vh] overflow-hidden">
+                    <div className="p-4 border-b">
+                        <div className="relative">
+                            <input className="w-full bg-slate-100 p-2 pl-9 rounded-lg text-sm outline-none" placeholder="Search" value={searchQuery} onChange={e => setSearchQuery(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleSearch()} />
+                            <span className="material-icons-round absolute left-2 top-2 text-slate-400 text-sm">search</span>
+                        </div>
+                    </div>
+                    <div className="flex-1 overflow-y-auto p-2">
+                        {requests.length > 0 && (
+                            <div className="mb-4">
+                                <h3 className="font-bold text-sm mb-2 px-2">Follow Requests</h3>
+                                {requests.map(r => (
+                                    <div key={r.id} className="flex justify-between items-center mb-2 p-2 bg-slate-50 rounded-lg">
+                                        <span className="text-sm font-bold">{r.fromName}</span>
+                                        <div className="flex gap-2">
+                                            <button onClick={() => acceptRequest(r.id)} className="bg-blue-500 text-white text-xs px-3 py-1 rounded">Confirm</button>
+                                            <button onClick={() => deleteDoc(doc(db, "friend_requests", r.id))} className="bg-slate-200 text-xs px-3 py-1 rounded">Delete</button>
                                         </div>
-                                    ))
-                                }
+                                    </div>
+                                ))}
                             </div>
                         )}
-
-                        {view === 'explore' && (
-                            <ExploreView 
-                                user={user} 
-                                setViewingProfile={setViewingProfile}
-                            />
-                        )}
-
-                        {view === 'messages' && (
-                            <MessagesView 
-                                user={user} 
-                                activeChat={activeChat}
-                                setActiveChat={setActiveChat}
-                            />
-                        )}
-
-                        {view === 'my_profile' && (
-                            <MyProfile 
-                                user={user} 
-                                onEdit={() => setView('edit_profile')} 
-                                onLogout={() => signOut(auth)} 
-                                onViewProfile={setViewingProfile}
-                                onViewPost={setActivePost}
-                            />
-                        )}
-
-                        {view === 'edit_profile' && (
-                            <EditProfile user={user} onClose={() => setView('my_profile')} />
-                        )}
+                        {usersList.map(u => (
+                            <div key={u.uid} className="flex items-center gap-3 p-3 hover:bg-slate-50 rounded-lg cursor-pointer" onClick={() => setViewingProfile(u)}>
+                                <img src={u.photoURL || DEFAULT_AVATAR} className="w-10 h-10 rounded-full object-cover bg-slate-200" />
+                                <div>
+                                    <p className="text-sm font-bold">{u.name} {u.isVerified && <span className="material-icons-round text-blue-500 text-sm">verified</span>}</p>
+                                    <p className="text-xs text-slate-500">@{u.username}</p>
+                                </div>
+                            </div>
+                        ))}
+                        {!searchQuery && requests.length === 0 && <p className="text-center text-slate-400 mt-10">Search for users to follow.</p>}
                     </div>
                 </div>
             );
         }
 
-        // --- SUB COMPONENTS ---
+        function MessagesView({ user, activeChat, setActiveChat, onViewProfile }) {
+            const [activeTab, setActiveTab] = useState('primary'); // 'primary' or 'requests'
+            const [primaryList, setPrimaryList] = useState([]);
+            const [requestList, setRequestList] = useState([]);
+
+            useEffect(() => {
+                // Fetch ALL requests related to user
+                const q1 = query(collection(db, "friend_requests"), where("from", "==", user.uid));
+                const q2 = query(collection(db, "friend_requests"), where("to", "==", user.uid));
+
+                // We need to listen to both and merge. For simplicity in this demo, let's just listen to accepted vs pending logic
+                // PRIMARY: Status 'accepted' (Both directions)
+                // REQUESTS: Status 'pending' AND 'to' == user.uid
+                
+                // Fetch Primary (Accepted)
+                // NOTE: Firestore OR queries are limited. We'll setup listeners for the specific criteria.
+                
+                // Listener 1: I sent, they accepted
+                const unsub1 = onSnapshot(query(collection(db, "friend_requests"), where("from", "==", user.uid), where("status", "==", "accepted")), async (snap) => {
+                    const ids = snap.docs.map(d => d.data().to);
+                    if(ids.length > 0) fetchUsers(ids, 'primary_sent');
+                    else setPrimaryList(prev => prev.filter(u => u.source !== 'sent')); // simplistic cleanup
+                });
+
+                // Listener 2: They sent, I accepted
+                const unsub2 = onSnapshot(query(collection(db, "friend_requests"), where("to", "==", user.uid), where("status", "==", "accepted")), async (snap) => {
+                    const ids = snap.docs.map(d => d.data().from);
+                    if(ids.length > 0) fetchUsers(ids, 'primary_rec');
+                });
+
+                // Listener 3: Requests (They sent, status pending)
+                const unsub3 = onSnapshot(query(collection(db, "friend_requests"), where("to", "==", user.uid), where("status", "==", "pending")), async (snap) => {
+                    const ids = snap.docs.map(d => d.data().from);
+                    if(ids.length > 0) fetchUsers(ids, 'requests');
+                    else setRequestList([]);
+                });
+
+                return () => { unsub1(); unsub2(); unsub3(); };
+            }, [user]);
+
+            const fetchUsers = async (ids, type) => {
+                if(ids.length === 0) return;
+                // Chunking for > 10 ids if needed, ignoring for demo
+                const q = query(collection(db, "users"), where("uid", "in", ids.slice(0, 10)));
+                const snap = await getDocs(q);
+                const users = snap.docs.map(d => d.data());
+                
+                if (type === 'requests') {
+                    setRequestList(users);
+                } else {
+                    setPrimaryList(prev => {
+                        // Merge and deduplicate
+                        const combined = [...prev, ...users];
+                        const unique = combined.filter((v,i,a)=>a.findIndex(v2=>(v2.uid===v.uid))===i);
+                        return unique;
+                    });
+                }
+            };
+
+            if (activeChat) return <div className="h-[80vh] bg-white rounded-xl border overflow-hidden"><ChatWindow currentUser={user} targetUser={activeChat} onBack={() => setActiveChat(null)} onViewProfile={onViewProfile} /></div>;
+
+            return (
+                <div className="bg-white rounded-xl shadow-sm border h-[80vh] flex flex-col overflow-hidden">
+                    <div className="p-4 border-b">
+                         <div className="flex justify-between items-center mb-4">
+                            <span className="font-bold text-lg">Messages</span>
+                            <span className="material-icons-round text-slate-800">edit_note</span>
+                        </div>
+                        <div className="flex bg-slate-100 p-1 rounded-lg">
+                            <button onClick={() => setActiveTab('primary')} className={`flex-1 py-1.5 text-sm rounded-md font-bold transition relative ${activeTab === 'primary' ? 'bg-white shadow-sm text-black' : 'text-slate-500'}`}>
+                                Primary
+                                {primaryList.some(u => false) && <span className="absolute top-1 right-3 w-2 h-2 bg-red-500 rounded-full"></span>}
+                            </button>
+                            <button onClick={() => setActiveTab('requests')} className={`flex-1 py-1.5 text-sm rounded-md font-bold transition relative ${activeTab === 'requests' ? 'bg-white shadow-sm text-black' : 'text-slate-500'}`}>
+                                Requests
+                                {requestList.length > 0 && <span className="absolute top-1 right-3 w-2 h-2 bg-red-500 rounded-full"></span>}
+                            </button>
+                        </div>
+                    </div>
+                    <div className="flex-1 overflow-y-auto p-2">
+                        {(activeTab === 'primary' ? primaryList : requestList).map(u => (
+                            <div key={u.uid} className="flex items-center justify-between p-3 hover:bg-slate-50 rounded-lg cursor-pointer" onClick={() => setActiveChat(u)}>
+                                <div className="flex items-center gap-3">
+                                    <img src={u.photoURL || DEFAULT_AVATAR} className="w-12 h-12 rounded-full object-cover bg-slate-200" />
+                                    <div>
+                                        <p className="text-sm font-bold flex items-center gap-1">{u.name} {u.isVerified && <span className="material-icons-round text-blue-500 text-xs">verified</span>}</p>
+                                        <p className="text-xs text-slate-500">Tap to chat</p>
+                                    </div>
+                                </div>
+                                <span className="material-icons-round text-slate-400">navigate_next</span>
+                            </div>
+                        ))}
+                        {(activeTab === 'primary' ? primaryList : requestList).length === 0 && <p className="text-center text-slate-400 mt-10">No messages.</p>}
+                    </div>
+                </div>
+            );
+        }
+
+        function ChatWindow({ currentUser, targetUser, onBack, onViewProfile }) {
+            const [messages, setMessages] = useState([]);
+            const [input, setInput] = useState('');
+            const scrollRef = useRef();
+            const [fullUser, setFullUser] = useState(targetUser);
+
+            useEffect(() => {
+                const unsubUser = onSnapshot(doc(db, "users", targetUser.uid), (doc) => {
+                    if (doc.exists()) setFullUser(doc.data());
+                });
+
+                const chatId = [currentUser.uid, targetUser.uid].sort().join('_');
+                const q = query(collection(db, "messages"), where("chatId", "==", chatId));
+                const unsub = onSnapshot(q, (snap) => {
+                    const msgs = snap.docs.map(d => ({id: d.id, ...d.data()})).sort((a,b) => (a.timestamp?.seconds || 0) - (b.timestamp?.seconds || 0));
+                    setMessages(msgs);
+                    setTimeout(() => scrollRef.current?.scrollIntoView({ behavior: "smooth" }), 100);
+                });
+                return () => { unsub(); unsubUser(); }
+            }, [targetUser]);
+
+            const sendMessage = async (e) => {
+                e.preventDefault();
+                if(!input.trim()) return;
+                const chatId = [currentUser.uid, targetUser.uid].sort().join('_');
+                await addDoc(collection(db, "messages"), { 
+                    chatId, text: input, senderId: currentUser.uid, receiverId: targetUser.uid, timestamp: serverTimestamp() 
+                });
+                setInput('');
+            };
+
+            const deleteMessage = async (id) => { if(confirm("Unsend message?")) await deleteDoc(doc(db, "messages", id)); };
+
+            const deleteChat = async () => {
+                if(confirm("Delete entire conversation? This cannot be undone.")) {
+                    const chatId = [currentUser.uid, targetUser.uid].sort().join('_');
+                    const q = query(collection(db, "messages"), where("chatId", "==", chatId));
+                    const snap = await getDocs(q);
+                    snap.forEach(d => deleteDoc(d.ref));
+                    onBack();
+                }
+            };
+
+            return (
+                <div className="flex flex-col h-full bg-white">
+                    <div className="px-4 py-3 border-b flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                            <button onClick={onBack}><span className="material-icons-round">arrow_back</span></button>
+                            <div className="flex items-center gap-2 cursor-pointer" onClick={() => onViewProfile(fullUser)}>
+                                <img src={fullUser.photoURL || DEFAULT_AVATAR} className="w-8 h-8 rounded-full object-cover" />
+                                <div>
+                                    <h3 className="font-bold text-sm flex items-center gap-1">
+                                        {fullUser.name} 
+                                        {fullUser.isVerified && <span className="material-icons-round text-blue-500 text-sm">verified</span>}
+                                    </h3>
+                                    <p className="text-[10px] text-green-500 font-bold">{formatLastSeen(fullUser.lastSeen)}</p>
+                                </div>
+                            </div>
+                        </div>
+                        <button onClick={deleteChat} className="text-red-500 text-xs font-bold border border-red-100 px-2 py-1 rounded">Delete Chat</button>
+                    </div>
+                    <div className="flex-1 overflow-y-auto p-4 space-y-2 bg-slate-50">
+                        {messages.map(msg => (
+                            <div key={msg.id} className={`flex ${msg.senderId === currentUser.uid ? 'justify-end' : 'justify-start'}`}>
+                                <div className={`max-w-[70%] flex flex-col ${msg.senderId === currentUser.uid ? 'items-end' : 'items-start'}`}>
+                                    <div 
+                                        onClick={() => msg.senderId === currentUser.uid && deleteMessage(msg.id)}
+                                        className={`px-4 py-2 rounded-2xl text-sm cursor-pointer hover:opacity-90 ${msg.senderId === currentUser.uid ? 'bg-blue-500 text-white' : 'bg-white text-slate-800 border'}`}
+                                    >
+                                        {msg.text}
+                                    </div>
+                                    <span className="text-[9px] text-slate-400 mt-1 px-1">{formatTimeIST(msg.timestamp)}</span>
+                                </div>
+                            </div>
+                        ))}
+                        <div ref={scrollRef}></div>
+                    </div>
+                    <form onSubmit={sendMessage} className="p-3 border-t flex gap-2 bg-white">
+                        <input value={input} onChange={e => setInput(e.target.value)} placeholder="Message..." className="flex-1 bg-slate-100 rounded-full px-4 text-sm outline-none" />
+                        <button disabled={!input.trim()} className="text-blue-500 font-bold text-sm">Send</button>
+                    </form>
+                </div>
+            );
+        }
 
         function UserListModal({ title, users, onClose, onViewProfile }) {
             return (
@@ -877,190 +897,6 @@
             );
         }
 
-        function ExploreChatView({ user, userData, viewType, setViewingProfile }) {
-            const [usersList, setUsersList] = useState([]);
-            const [searchQuery, setSearchQuery] = useState('');
-            const [requests, setRequests] = useState([]);
-
-            useEffect(() => {
-                const qReq = query(collection(db, "friend_requests"), where("to", "==", user.uid), where("status", "==", "pending"));
-                onSnapshot(qReq, (snap) => setRequests(snap.docs.map(d => ({id: d.id, ...d.data()}))));
-            }, [user]);
-
-            const handleSearch = async () => {
-                if(!searchQuery.trim()) return;
-                const snap = await getDocs(query(collection(db, "users"), limit(20)));
-                const results = snap.docs.map(d => d.data()).filter(u => 
-                    u.uid !== user.uid && (u.username.includes(searchQuery.toLowerCase()) || u.name.toLowerCase().includes(searchQuery.toLowerCase()))
-                );
-                setUsersList(results);
-            };
-
-            const acceptRequest = async (id) => await updateDoc(doc(db, "friend_requests", id), { status: 'accepted' });
-
-            return (
-                <div className="bg-white rounded-xl shadow-sm border flex flex-col h-[80vh] overflow-hidden">
-                    <div className="p-4 border-b">
-                        <div className="relative">
-                            <input className="w-full bg-slate-100 p-2 pl-9 rounded-lg text-sm outline-none" placeholder="Search" value={searchQuery} onChange={e => setSearchQuery(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleSearch()} />
-                            <span className="material-icons-round absolute left-2 top-2 text-slate-400 text-sm">search</span>
-                        </div>
-                    </div>
-                    <div className="flex-1 overflow-y-auto p-2">
-                        {requests.length > 0 && (
-                            <div className="mb-4">
-                                <h3 className="font-bold text-sm mb-2 px-2">Follow Requests</h3>
-                                {requests.map(r => (
-                                    <div key={r.id} className="flex justify-between items-center mb-2 p-2 bg-slate-50 rounded-lg">
-                                        <span className="text-sm font-bold">{r.fromName}</span>
-                                        <div className="flex gap-2">
-                                            <button onClick={() => acceptRequest(r.id)} className="bg-blue-500 text-white text-xs px-3 py-1 rounded">Confirm</button>
-                                            <button onClick={() => deleteDoc(doc(db, "friend_requests", r.id))} className="bg-slate-200 text-xs px-3 py-1 rounded">Delete</button>
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
-                        )}
-                        {usersList.map(u => (
-                            <div key={u.uid} className="flex items-center gap-3 p-3 hover:bg-slate-50 rounded-lg cursor-pointer" onClick={() => setViewingProfile(u)}>
-                                <img src={u.photoURL || DEFAULT_AVATAR} className="w-10 h-10 rounded-full object-cover bg-slate-200" />
-                                <div>
-                                    <p className="text-sm font-bold">{u.name} {u.isVerified && <span className="material-icons-round text-blue-500 text-sm">verified</span>}</p>
-                                    <p className="text-xs text-slate-500">@{u.username}</p>
-                                </div>
-                            </div>
-                        ))}
-                        {!searchQuery && requests.length === 0 && <p className="text-center text-slate-400 mt-10">Search for users to follow.</p>}
-                    </div>
-                </div>
-            );
-        }
-
-        function MessagesView({ user, activeChat, setActiveChat }) {
-            const [friends, setFriends] = useState([]);
-
-            useEffect(() => {
-                const qFriends = query(collection(db, "friend_requests"), where("from", "==", user.uid), where("status", "==", "accepted"));
-                onSnapshot(qFriends, async (snap) => {
-                    const ids = snap.docs.map(d => d.data().to);
-                    if(ids.length > 0) {
-                        const q = query(collection(db, "users"), where("uid", "in", ids.slice(0, 10)));
-                        const s = await getDocs(q);
-                        setFriends(s.docs.map(d => d.data()));
-                    }
-                });
-            }, [user]);
-
-            if (activeChat) return <div className="h-[80vh] bg-white rounded-xl border overflow-hidden"><ChatWindow currentUser={user} targetUser={activeChat} onBack={() => setActiveChat(null)} /></div>;
-
-            return (
-                <div className="bg-white rounded-xl shadow-sm border h-[80vh] flex flex-col overflow-hidden">
-                    <div className="p-4 border-b flex justify-between items-center">
-                        <span className="font-bold text-lg">Messages</span>
-                        <span className="material-icons-round text-slate-800">edit_note</span>
-                    </div>
-                    <div className="flex-1 overflow-y-auto p-2">
-                        {friends.map(u => (
-                            <div key={u.uid} className="flex items-center justify-between p-3 hover:bg-slate-50 rounded-lg cursor-pointer" onClick={() => setActiveChat(u)}>
-                                <div className="flex items-center gap-3">
-                                    <img src={u.photoURL || DEFAULT_AVATAR} className="w-12 h-12 rounded-full object-cover bg-slate-200" />
-                                    <div>
-                                        <p className="text-sm font-bold">{u.name}</p>
-                                        <p className="text-xs text-slate-500">Tap to chat</p>
-                                    </div>
-                                </div>
-                                <span className="material-icons-round text-slate-400">navigate_next</span>
-                            </div>
-                        ))}
-                        {friends.length === 0 && <p className="text-center text-slate-400 mt-10">Follow people to start messaging.</p>}
-                    </div>
-                </div>
-            );
-        }
-
-        function ChatWindow({ currentUser, targetUser, onBack }) {
-            const [messages, setMessages] = useState([]);
-            const [input, setInput] = useState('');
-            const scrollRef = useRef();
-            const [fullUser, setFullUser] = useState(targetUser);
-
-            useEffect(() => {
-                const unsubUser = onSnapshot(doc(db, "users", targetUser.uid), (doc) => {
-                    if (doc.exists()) setFullUser(doc.data());
-                });
-
-                const chatId = [currentUser.uid, targetUser.uid].sort().join('_');
-                const q = query(collection(db, "messages"), where("chatId", "==", chatId));
-                const unsub = onSnapshot(q, (snap) => {
-                    const msgs = snap.docs.map(d => ({id: d.id, ...d.data()})).sort((a,b) => (a.timestamp?.seconds || 0) - (b.timestamp?.seconds || 0));
-                    setMessages(msgs);
-                    setTimeout(() => scrollRef.current?.scrollIntoView({ behavior: "smooth" }), 100);
-                });
-                return () => { unsub(); unsubUser(); }
-            }, [targetUser]);
-
-            const sendMessage = async (e) => {
-                e.preventDefault();
-                if(!input.trim()) return;
-                const chatId = [currentUser.uid, targetUser.uid].sort().join('_');
-                await addDoc(collection(db, "messages"), { 
-                    chatId, text: input, senderId: currentUser.uid, receiverId: targetUser.uid, timestamp: serverTimestamp() 
-                });
-                setInput('');
-            };
-
-            const deleteMessage = async (id) => { if(confirm("Unsend message?")) await deleteDoc(doc(db, "messages", id)); };
-
-            const deleteChat = async () => {
-                if(confirm("Delete entire conversation? This cannot be undone.")) {
-                    const chatId = [currentUser.uid, targetUser.uid].sort().join('_');
-                    const q = query(collection(db, "messages"), where("chatId", "==", chatId));
-                    const snap = await getDocs(q);
-                    snap.forEach(d => deleteDoc(d.ref));
-                    onBack();
-                }
-            };
-
-            return (
-                <div className="flex flex-col h-full bg-white">
-                    <div className="px-4 py-3 border-b flex items-center justify-between">
-                        <div className="flex items-center gap-3">
-                            <button onClick={onBack}><span className="material-icons-round">arrow_back</span></button>
-                            <img src={fullUser.photoURL || DEFAULT_AVATAR} className="w-8 h-8 rounded-full object-cover" />
-                            <div>
-                                <h3 className="font-bold text-sm flex items-center gap-1">
-                                    {fullUser.name} 
-                                    {fullUser.isVerified && <span className="material-icons-round text-blue-500 text-sm">verified</span>}
-                                </h3>
-                                <p className="text-[10px] text-slate-500">@{fullUser.username}</p>
-                            </div>
-                        </div>
-                        <button onClick={deleteChat} className="text-red-500 text-xs font-bold border border-red-100 px-2 py-1 rounded">Delete Chat</button>
-                    </div>
-                    <div className="flex-1 overflow-y-auto p-4 space-y-2 bg-slate-50">
-                        {messages.map(msg => (
-                            <div key={msg.id} className={`flex ${msg.senderId === currentUser.uid ? 'justify-end' : 'justify-start'}`}>
-                                <div className={`max-w-[70%] flex flex-col ${msg.senderId === currentUser.uid ? 'items-end' : 'items-start'}`}>
-                                    <div 
-                                        onClick={() => msg.senderId === currentUser.uid && deleteMessage(msg.id)}
-                                        className={`px-4 py-2 rounded-2xl text-sm cursor-pointer hover:opacity-90 ${msg.senderId === currentUser.uid ? 'bg-blue-500 text-white' : 'bg-white text-slate-800 border'}`}
-                                    >
-                                        {msg.text}
-                                    </div>
-                                    <span className="text-[9px] text-slate-400 mt-1 px-1">{formatTimeIST(msg.timestamp)}</span>
-                                </div>
-                            </div>
-                        ))}
-                        <div ref={scrollRef}></div>
-                    </div>
-                    <form onSubmit={sendMessage} className="p-3 border-t flex gap-2 bg-white">
-                        <input value={input} onChange={e => setInput(e.target.value)} placeholder="Message..." className="flex-1 bg-slate-100 rounded-full px-4 text-sm outline-none" />
-                        <button disabled={!input.trim()} className="text-blue-500 font-bold text-sm">Send</button>
-                    </form>
-                </div>
-            );
-        }
-
         function MyProfile({ user, onEdit, onLogout, onViewProfile, onViewPost }) {
             const [userData, setUserData] = useState(null);
             const [myPosts, setMyPosts] = useState([]);
@@ -1205,6 +1041,226 @@
             );
         }
 
+        // --- DASHBOARD ---
+        function Dashboard({ user, userData }) {
+            const [view, setView] = useState('feed'); 
+            const [posts, setPosts] = useState([]);
+            const [following, setFollowing] = useState([]);
+            const [viewingProfile, setViewingProfile] = useState(null);
+            const [activeChat, setActiveChat] = useState(null);
+            const [unreadCount, setUnreadCount] = useState(0);
+            const [notifications, setNotifications] = useState([]);
+            const [activePost, setActivePost] = useState(null);
+
+            // Fetch Following list
+            useEffect(() => {
+                const q = query(collection(db, "friend_requests"), where("from", "==", user.uid), where("status", "==", "accepted"));
+                const unsub = onSnapshot(q, (snap) => {
+                    const ids = snap.docs.map(d => d.data().to);
+                    setFollowing([...ids, user.uid]); 
+                });
+                return () => unsub();
+            }, [user]);
+
+            // Fetch Notifications
+            useEffect(() => {
+                const q = query(collection(db, "notifications"), where("to", "==", user.uid));
+                const unsub = onSnapshot(q, (snap) => {
+                    const notifs = snap.docs.map(d => ({id: d.id, ...d.data()}));
+                    notifs.sort((a, b) => (b.timestamp?.seconds || 0) - (a.timestamp?.seconds || 0)); 
+                    setNotifications(notifs.slice(0, 20)); 
+                });
+                return () => unsub();
+            }, [user]);
+
+            // Fetch Feed Posts
+            useEffect(() => {
+                if (view === 'feed') {
+                    const q = query(collection(db, "posts"), limit(50));
+                    const unsub = onSnapshot(q, (snap) => {
+                        let allPosts = snap.docs.map(d => ({id: d.id, ...d.data()}));
+                        if (following.length > 0) {
+                            allPosts = allPosts.filter(p => following.includes(p.userId));
+                        } else {
+                            allPosts = [];
+                        }
+                        allPosts.sort((a, b) => (b.timestamp?.seconds || 0) - (a.timestamp?.seconds || 0));
+                        setPosts(allPosts);
+                    });
+                    return () => unsub();
+                } else if (view === 'feed') {
+                    setPosts([]); 
+                }
+            }, [view, following]);
+
+            // Simple Unread Message Check
+            useEffect(() => {
+                const q = query(collection(db, "messages"), where("receiverId", "==", user.uid), limit(1));
+            }, []);
+
+            const addNotification = async (toUser, type, content = "") => {
+                if(toUser === user.uid) return;
+                await addDoc(collection(db, "notifications"), {
+                    from: user.uid, fromName: user.displayName, to: toUser, type: type, content: content, timestamp: serverTimestamp()
+                });
+            };
+
+            const handleLike = async (postId, isLiked, postOwnerId) => {
+                const postRef = doc(db, "posts", postId);
+                const postDoc = await getDoc(postRef);
+                if (postDoc.exists()) {
+                    let likes = postDoc.data().likes || [];
+                    if (isLiked) likes = likes.filter(id => id !== user.uid);
+                    else {
+                        likes.push(user.uid);
+                        addNotification(postOwnerId, "like");
+                    }
+                    await updateDoc(postRef, { likes });
+                }
+            };
+
+            const handleComment = async (postId, text, postOwnerId) => {
+                const postRef = doc(db, "posts", postId);
+                const postDoc = await getDoc(postRef);
+                if (postDoc.exists()) {
+                    let comments = postDoc.data().comments || [];
+                    comments.push({ userId: user.uid, username: user.displayName, text: text, timestamp: Date.now() });
+                    await updateDoc(postRef, { comments });
+                    addNotification(postOwnerId, "comment", text);
+                }
+            };
+
+            const handleDeletePost = async (postId) => {
+                if(confirm("Delete this post?")) {
+                    await deleteDoc(doc(db, "posts", postId));
+                }
+            };
+
+            const handleShare = (post) => {
+                navigator.clipboard.writeText(`Check out this post: ${post.caption}`);
+                alert("Link copied!");
+            };
+
+            const startChat = (targetUser) => {
+                setViewingProfile(null);
+                setActiveChat(targetUser);
+                setView('messages');
+            };
+
+            return (
+                <div className="h-screen flex flex-col bg-slate-50 overflow-hidden">
+                    <Navbar user={user} userData={userData} onLogout={() => signOut(auth)} setView={setView} activeView={view} unreadCount={unreadCount} notifCount={notifications.length} />
+                    
+                    {viewingProfile && (
+                        <UserProfileModal 
+                            currentUser={userData} 
+                            targetUser={viewingProfile} 
+                            isAdmin={userData?.username === 'admin'} 
+                            onClose={() => setViewingProfile(null)} 
+                            onViewProfile={setViewingProfile}
+                            onMessage={startChat}
+                            onAddNotif={addNotification}
+                            onViewPost={setActivePost}
+                        />
+                    )}
+
+                    {activePost && (
+                        <PostViewModal 
+                            post={activePost}
+                            currentUser={user}
+                            onClose={() => setActivePost(null)}
+                            onLike={handleLike}
+                            onComment={handleComment}
+                            onShare={handleShare}
+                            onDelete={handleDeletePost}
+                        />
+                    )}
+
+                    {view === 'create_post' && <CreatePostModal user={user} onClose={() => setView('feed')} />}
+
+                    <div className="flex-1 overflow-y-auto w-full p-0 md:p-4 max-w-4xl mx-auto pb-20">
+                        
+                        {view === 'feed' && (
+                            <div className="max-w-lg mx-auto">
+                                {posts.length === 0 ? (
+                                    <div className="text-center mt-10">
+                                        <p className="text-xl font-insta mb-2">Welcome to Indiagram</p>
+                                        <p className="text-sm text-slate-500">Follow people to see their photos here.</p>
+                                        <button onClick={() => setView('explore')} className="text-blue-500 font-bold mt-2">Find People</button>
+                                    </div>
+                                ) : (
+                                    posts.map(post => (
+                                        <PostCard 
+                                            key={post.id} 
+                                            post={post} 
+                                            currentUser={user} 
+                                            onLike={handleLike} 
+                                            onComment={handleComment}
+                                            onShare={handleShare}
+                                            onDelete={handleDeletePost}
+                                            onViewProfile={setViewingProfile}
+                                        />
+                                    ))
+                                )}
+                            </div>
+                        )}
+
+                        {view === 'notifications' && (
+                            <div className="max-w-md mx-auto bg-white rounded-lg shadow-sm border p-4">
+                                <h3 className="font-bold text-lg mb-4">Notifications</h3>
+                                {notifications.length === 0 ? <p className="text-slate-500 text-center">No notifications</p> : 
+                                    notifications.map(n => (
+                                        <div key={n.id} className="flex items-center gap-3 p-3 border-b last:border-0">
+                                            <div className="w-10 h-10 rounded-full bg-slate-200 flex items-center justify-center font-bold text-slate-600">{n.fromName[0]}</div>
+                                            <div className="text-sm">
+                                                <span className="font-bold">{n.fromName}</span> 
+                                                {n.type === 'like' && ' liked your post.'}
+                                                {n.type === 'comment' && ` commented: "${n.content}"`}
+                                                {n.type === 'follow' && ' started following you.'}
+                                                <p className="text-xs text-slate-400">{formatDateIST(n.timestamp)}</p>
+                                            </div>
+                                        </div>
+                                    ))
+                                }
+                            </div>
+                        )}
+
+                        {view === 'explore' && (
+                            <ExploreChatView 
+                                user={user} 
+                                userData={userData}
+                                viewType={view} 
+                                setViewingProfile={setViewingProfile}
+                            />
+                        )}
+
+                        {view === 'messages' && (
+                            <MessagesView 
+                                user={user} 
+                                activeChat={activeChat}
+                                setActiveChat={setActiveChat}
+                                onViewProfile={setViewingProfile} 
+                            />
+                        )}
+
+                        {view === 'my_profile' && (
+                            <MyProfile 
+                                user={user} 
+                                onEdit={() => setView('edit_profile')} 
+                                onLogout={() => signOut(auth)} 
+                                onViewProfile={setViewingProfile}
+                                onViewPost={setActivePost}
+                            />
+                        )}
+
+                        {view === 'edit_profile' && (
+                            <EditProfile user={user} onClose={() => setView('my_profile')} />
+                        )}
+                    </div>
+                </div>
+            );
+        }
+
         // --- ROOT APP ---
         function App() {
             const [user, setUser] = useState(null);
@@ -1213,12 +1269,7 @@
 
             useEffect(() => {
                 let isMounted = true;
-                const safetyTimeout = setTimeout(() => {
-                    if (isMounted && loading) {
-                        console.warn("Loading timeout reached");
-                        setLoading(false);
-                    }
-                }, 5000); 
+                const safetyTimeout = setTimeout(() => { if (isMounted && loading) { console.warn("Loading timeout reached"); setLoading(false); } }, 5000); 
 
                 const unsubAuth = onAuthStateChanged(auth, async (u) => {
                     if (u) {
@@ -1235,13 +1286,11 @@
                                         setUserData(null);
                                     } else {
                                         setUserData(data);
-                                        // Update online status
                                         updateDoc(doc(db, "users", u.uid), { lastSeen: serverTimestamp() });
                                     }
                                 }
                                 setLoading(false);
                             }
-                            
                             onSnapshot(doc(db, "users", u.uid), (docSnap) => {
                                 if (isMounted && docSnap.exists()) {
                                     const data = docSnap.data();
@@ -1265,20 +1314,10 @@
                         }
                     }
                 });
-                
-                return () => {
-                    isMounted = false;
-                    clearTimeout(safetyTimeout);
-                    unsubAuth();
-                };
+                return () => { isMounted = false; clearTimeout(safetyTimeout); unsubAuth(); };
             }, []);
 
-            if (loading) return (
-                <div className="h-screen flex flex-col items-center justify-center">
-                    <h1 className="font-insta text-4xl text-transparent bg-clip-text bg-gradient-to-r from-purple-600 to-orange-500 mb-4">Indiagram</h1>
-                    <div className="loader"></div>
-                </div>
-            );
+            if (loading) return <div className="h-screen flex items-center justify-center"><div className="loader"></div></div>;
 
             return user ? <Dashboard user={user} userData={userData} /> : <AuthPage setUser={setUser} />;
         }
